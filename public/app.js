@@ -8,6 +8,7 @@ const ok = (p) => (mode === 'cli' ? p.cliAvailable : mode === 'mixed' ? p.apiCon
 let history = []; // 이전 회의의 질문/결론 (후속 질문에 맥락으로 전달)
 let controller = null;
 let cfgSage = null;
+let liveModels = {}; // 서비스에서 가져온 모델 목록 { gpt: {ids, pick}, ... }
 let sg = true; // 삼국지 모드
 try { sg = localStorage.getItem('sg') !== '0'; } catch {}
 const byId = (id) => providers.find((p) => p.id === id);
@@ -42,6 +43,17 @@ function md(text) {
 }
 
 // --- 설정 UI ---
+// 모델 칸 기본값: 환경변수로 고정하지 않았고, 서비스 목록에 없는 기본 모델이면 목록의 추천 모델로 바꾼다.
+function startModel(p) {
+  const live = liveModels[p.id];
+  return live && !p.modelPinned && !live.ids.includes(p.model) && live.pick ? live.pick : p.model;
+}
+// 추천 목록: CLI 는 비워 두는 것이 가장 안전하므로 제안하지 않는다.
+function modelChoices(p) {
+  if (mode === 'cli') return [];
+  return liveModels[p.id]?.ids || (mode === 'mixed' ? [] : p.models);
+}
+
 function renderParticipants() {
   const box = $('participants');
   box.innerHTML = '';
@@ -51,8 +63,8 @@ function renderParticipants() {
     card.innerHTML = `
       <div class="p-head"><span class="dot" style="background:${colorOf(p.id)}"></span>${esc(nameOf(p.id))}<span class="vendor">${sg ? p.label + ' · ' : ''}${p.vendor}</span>
         <label><input type="checkbox" data-id="${p.id}" ${ok(p) ? 'checked' : 'disabled'}> 참가</label></div>
-      <input type="text" data-model="${p.id}" value="${mode === 'api' ? esc(p.model) : ''}" placeholder="${mode === 'cli' ? '비우면 CLI 기본 모델' : mode === 'mixed' ? '비우면 기본 모델' : ''}" list="models-${p.id}" ${ok(p) ? '' : 'disabled'} aria-label="${p.label} 모델">
-      <datalist id="models-${p.id}">${p.models.map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
+      <input type="text" data-model="${p.id}" value="${mode === 'api' ? esc(startModel(p)) : ''}" placeholder="${mode === 'cli' ? '비우면 CLI 기본 모델' : mode === 'mixed' ? '비우면 기본 모델' : ''}" list="models-${p.id}" ${ok(p) ? '' : 'disabled'} aria-label="${p.label} 모델">
+      <datalist id="models-${p.id}">${modelChoices(p).map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
       ${ok(p) ? '' : `<div class="p-warn">${mode === 'cli' ? `'${p.cliBin}' CLI 설치·로그인이 필요합니다` : mode === 'mixed' ? `.env 의 ${p.keyEnv} 또는 '${p.cliBin}' CLI 가 필요합니다` : `.env 에 ${p.keyEnv} 가 필요합니다`}</div>`}`;
     box.appendChild(card);
   }
@@ -298,6 +310,11 @@ function setMode(m) {
   renderParticipants();
 }
 document.querySelectorAll('input[name=mode]').forEach((r) => r.addEventListener('change', () => setMode(r.value)));
+
+fetch('/api/models').then((r) => r.json()).then((m) => {
+  liveModels = m || {};
+  if (providers.length) renderParticipants(); // 설정보다 늦게 도착하면 다시 그린다
+}).catch(() => {});
 
 fetch('/api/config').then((r) => r.json()).then((cfg) => {
   providers = cfg.providers;

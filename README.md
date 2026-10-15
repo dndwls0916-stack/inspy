@@ -40,7 +40,7 @@ CLI 방식 참고:
 | Gemini (Google) | `GEMINI_API_KEY` | `gemini-2.5-flash` |
 | Claude (Anthropic) | `ANTHROPIC_API_KEY` | `claude-sonnet-5-5` |
 
-모델명은 `.env` 또는 화면의 입력칸에서 자유롭게 바꿀 수 있습니다.
+모델명은 `.env` 또는 화면의 입력칸에서 바꿀 수 있습니다. 모델 이름은 서비스가 자주 바꾸므로, **API 키가 있으면 서비스에서 지금 쓸 수 있는 모델 목록을 가져와** 입력칸 목록으로 보여 주고(`/api/models`, 10분 캐시), 기본 모델이 목록에 없으면 최신 주력 모델을 자동으로 고릅니다. `.env` 의 `*_MODEL` 로 고정하면 그대로 씁니다. CLI 방식은 칸을 **비우는 것**이 가장 안전합니다. 모델 때문에 실패하면 오류 메시지 끝에 해결 방법이 붙습니다.
 
 ## 실행파일 (Node 설치 없이 더블클릭)
 
@@ -90,6 +90,7 @@ npm run build:exe:win    # Windows용(.exe)을 다른 OS에서 교차 빌드
 server.js          HTTP 서버, SSE 스트리밍 (/api/council, /api/config)
 lib/council.js     회의 진행 로직 (라운드, 프롬프트, 사회자)
 lib/personas.js    삼국지 캐릭터 설정 (이름, 색, 말투)
+lib/models.js       서비스의 모델 목록 조회, 기본 모델 추천, 모델 오류 힌트
 lib/providers.js   OpenAI / Gemini / Anthropic API 어댑터 + CLI 실행기 (+ 데모 모드)
 public/            웹 화면 (index.html, app.js, style.css)
 test/smoke.js      데모 모드 통합 테스트
