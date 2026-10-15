@@ -35,6 +35,21 @@ CLI 방식 참고:
 
 모델명은 `.env` 또는 화면의 입력칸에서 자유롭게 바꿀 수 있습니다.
 
+## 실행파일 (Node 설치 없이 더블클릭)
+
+Node.js가 없는 PC에서도 쓰려면 단일 실행파일로 빌드합니다.
+
+```bash
+npm install
+npm run build:exe        # 현재 OS용 -> dist/ai-council-<os>-<arch>
+npm run build:exe:win    # Windows용(.exe)을 다른 OS에서 교차 빌드
+```
+
+- 실행하면 콘솔 창이 뜨고 브라우저가 자동으로 열립니다. 창을 닫으면 종료됩니다.
+- 처음 실행하면 실행파일 옆에 `.env` 템플릿이 생깁니다. API 키 방식은 여기에 키를 넣고 다시 실행하세요. 키가 없고 CLI가 설치돼 있으면 자동으로 CLI 방식으로 시작합니다.
+- macOS용은 서명(codesign) 때문에 macOS에서 빌드해야 합니다. 3개 OS용을 한 번에 받으려면 GitHub의 **Actions → Build executables → Run workflow** 를 실행하고 결과 Artifacts 를 내려받으세요. (`v1.0.0` 같은 태그를 푸시하면 Release 에 자동 첨부됩니다.)
+- 서명되지 않은 실행파일이라 Windows SmartScreen("PC를 보호했습니다")이나 macOS 보안 경고가 뜰 수 있습니다. Windows는 "추가 정보 → 실행", macOS는 우클릭 → 열기로 실행하세요.
+
 ## 회의 방식
 
 1. **1라운드**: 각 AI가 서로의 답을 보지 않고 독립적으로 의견을 냅니다. (병렬 호출)
@@ -55,4 +70,5 @@ lib/providers.js   OpenAI / Gemini / Anthropic API 어댑터 + CLI 실행기 (+ 
 public/            웹 화면 (index.html, app.js, style.css)
 test/smoke.js      데모 모드 통합 테스트
 test/cli.js        가짜 CLI로 CLI 방식 검증 (npm test 에서 둘 다 실행)
+scripts/build.js   단일 실행파일 빌드 (Node SEA)
 ```
