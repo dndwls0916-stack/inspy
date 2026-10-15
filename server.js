@@ -13,6 +13,7 @@ try {
   if (m.isSea()) sea = m;
 } catch {}
 const { runCouncil } = require('./lib/council');
+const { listAllModels } = require('./lib/models');
 const { PERSONAS, SAGE } = require('./lib/personas');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -86,6 +87,7 @@ function config() {
       cliBin: p.cli.bin,
       persona: PERSONAS[id],
       model: defaultModel(id),
+      modelPinned: Boolean(process.env[p.modelEnv]),
       models: p.models,
     })),
   };
@@ -146,6 +148,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   try {
     if (req.method === 'GET' && url.pathname === '/api/config') return sendJson(res, 200, config());
+    if (req.method === 'GET' && url.pathname === '/api/models') return sendJson(res, 200, isMock() ? {} : await listAllModels());
     if (req.method === 'POST' && url.pathname === '/api/council') return await handleCouncil(req, res);
 
     if (url.pathname === '/favicon.ico') return res.writeHead(204).end();
