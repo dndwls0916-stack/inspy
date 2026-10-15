@@ -155,3 +155,11 @@ body.sg button:not(.ghost):not(#stop) { background: var(--accent); }
 }
 
 .msg-head small.model { margin-left: auto; font-family: ui-monospace, Consolas, monospace; font-size: 11px; opacity: .8; }
+
+/* 합의 판정 */
+.verdict { display: inline-block; padding: 1px 9px; border-radius: 10px; font-size: 12px; font-weight: 700; color: #fff; font-family: system-ui, sans-serif; margin-right: 4px; }
+.verdict.yes { background: #2f7d4f; } .verdict.no { background: #b7791f; }
+.msg.consensus-card { max-width: 860px; }
+.msg.consensus-card.reached { border-left: 6px solid #2f7d4f; background: linear-gradient(135deg, var(--panel), rgba(47,125,79,.10)); }
+.msg.consensus-card.open { border-left: 6px solid #b7791f; background: linear-gradient(135deg, var(--panel), rgba(183,121,31,.10)); }
+.msg.consensus-card .msg-body p { margin: 4px 0; }

@@ -125,6 +125,8 @@ async function handleCouncil(req, res) {
     return sendJson(res, 400, { error });
   }
 
+  const consensus = body.consensus === true;
+  const maxRounds = Math.min(8, Math.max(2, Number(body.maxRounds) || 5)); // 합의 모드의 상한(비용 보호)
   const rounds = Math.min(3, Math.max(1, Number(body.rounds) || 2));
   const moderator = participants.some((p) => p.id === body.moderator) ? body.moderator : participants[0].id;
   const history = (Array.isArray(body.history) ? body.history : [])
@@ -137,7 +139,7 @@ async function handleCouncil(req, res) {
   const emit = (ev) => !res.writableEnded && res.write(`data: ${JSON.stringify(ev)}\n\n`);
 
   try {
-    await runCouncil({ question, participants, rounds, moderator, history, mode, persona: body.persona === true, emit, signal: ac.signal });
+    await runCouncil({ question, participants, rounds, consensus, maxRounds, moderator, history, mode, persona: body.persona === true, emit, signal: ac.signal });
   } catch (err) {
     emit({ type: 'error', error: String(err.message || err) });
   }
