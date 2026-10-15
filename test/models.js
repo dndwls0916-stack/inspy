@@ -1,13 +1,23 @@
 // 모델 목록 가져오기/기본 모델 추천/오류 힌트 검증. 실행: npm test
 const assert = require('assert');
-const { pickDefault, withModelHint, listModels, resolveApiModel, newestFirst } = require('../lib/models');
+const { pickDefault, rankModels, isModelAccessError, apiCandidates, resetModelMemory, withModelHint, listModels, resolveApiModel, newestFirst } = require('../lib/models');
 
 // --- 최신순 정렬은 문자열이 아니라 숫자 기준 ---
 assert.deepEqual(['gpt-5', 'gpt-5.10', 'gpt-5.2', 'gpt-4o'].sort(newestFirst), ['gpt-5.10', 'gpt-5.2', 'gpt-5', 'gpt-4o'], '5.10 > 5.2');
 
 // --- 기본 모델 추천 ---
 assert.equal(pickDefault('gemini', ['gemini-3.1-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash-lite']), 'gemini-2.5-flash', '안정판 flash 우선');
-assert.equal(pickDefault('gemini', ['gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite']), 'gemini-3-flash-preview', '안정판 없으면 preview flash, lite 제외');
+assert.equal(pickDefault('gemini', ['gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite']), 'gemini-3.1-flash-lite', '안정판 flash 가 없으면 안정판 lite 를 preview 보다 우선');
+assert.equal(pickDefault('gemini', ['gemini-3-flash-preview', 'gemini-3.1-pro-preview']), 'gemini-3-flash-preview', 'lite 도 없으면 preview flash');
+// 실제 보고: 이름만 새로운 코드명 모델(gemini-4-argon)은 무료 한도가 0 이라 자동 선택하면 안 된다
+assert.deepEqual(rankModels('gemini', ['gemini-4-argon', 'gemini-3.1-pro-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro']), ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-4-argon', 'gemini-3.1-pro-preview', 'gemini-2.5-pro'], 'flash 계열 우선, 코드명/pro 는 뒤');
+assert.notEqual(pickDefault('gemini', ['gemini-4-argon', 'gemini-2.5-flash']), 'gemini-4-argon');
+
+// --- 모델 접근 불가 신호 판별 ---
+assert(isModelAccessError(new Error('HTTP 429: ... generate_content_free_tier_requests, limit: 0, model: gemini-4-argon')), '무료 한도 0');
+assert(isModelAccessError(new Error('HTTP 404: models/gemini-2.5-pro is no longer available to new users')), '제공 중단');
+assert(!isModelAccessError(new Error('HTTP 429: Resource exhausted. Please retry in 12s. limit: 10')), '일시적 속도 제한은 모델 문제가 아님');
+assert(!isModelAccessError(new Error('HTTP 401: API key not valid')), '키 오류');
 assert.equal(pickDefault('gemini', ['gemini-3.1-pro-preview']), 'gemini-3.1-pro-preview', 'flash 가 없으면 첫 번째');
 assert.equal(pickDefault('gemini', ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.1-flash']), 'gemini-3.5-flash', '최신 버전 우선');
 assert.equal(pickDefault('gpt', ['gpt-4o-mini', 'gpt-5.5', 'gpt-5.4', 'gpt-4o']), 'gpt-5.5');
@@ -73,6 +83,48 @@ assert.equal(withModelHint(quota, { model: 'x', via: 'api' }), quota, '한도 �
     process.env.GEMINI_MODEL = 'pinned-model';
     assert.equal(await resolveApiModel('gemini', '', 'pinned-model'), 'pinned-model', '환경변수로 고정하면 그대로');
     delete process.env.GEMINI_MODEL;
+    // --- 호출 시 후보 순회: 첫 모델이 한도 0 이면 다음 모델로 자동 전환하고 기억한다 ---
+    const { PROVIDERS, callProvider } = require('../lib/providers');
+    resetModelMemory();
+    global.fetch = async () => ({ ok: true, json: async () => ({ models: ['gemini-4-argon', 'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'].map((n) => ({ name: 'models/' + n, supportedGenerationMethods: ['generateContent'] })) }) });
+    process.env.GEMINI_API_KEY = 'k6';
+    const tried = [];
+    const realCall = PROVIDERS.gemini.call;
+    PROVIDERS.gemini.call = async ({ model }) => {
+      tried.push(model);
+      if (model === 'gemini-3.5-flash') throw new Error('HTTP 429: free_tier_requests, limit: 0, model: gemini-3.5-flash');
+      return 'ok:' + model;
+    };
+    const used = [];
+    const out = await callProvider('gemini', { mode: 'api', model: '', system: 's', prompt: 'p', onUse: (m) => used.push(m) });
+    assert.equal(out, 'ok:gemini-3.1-flash-lite', '한도 0 인 모델은 건너뛰고 다음 후보 사용');
+    assert.deepEqual(tried, ['gemini-3.5-flash', 'gemini-3.1-flash-lite']);
+    assert.deepEqual(used, ['gemini-3.5-flash', 'gemini-3.1-flash-lite'], '시도한 모델을 알림');
+    tried.length = 0;
+    await callProvider('gemini', { mode: 'api', model: '', system: 's', prompt: 'p' });
+    assert.deepEqual(tried, ['gemini-3.1-flash-lite'], '성공한 모델을 기억해 바로 사용');
+    // 기본 모델(gemini-2.5-flash)이 목록에 있으면 그것을 먼저 쓴다
+    resetModelMemory();
+    global.fetch = async () => ({ ok: true, json: async () => ({ models: ['gemini-3.5-flash', 'gemini-2.5-flash'].map((n) => ({ name: 'models/' + n, supportedGenerationMethods: ['generateContent'] })) }) });
+    process.env.GEMINI_API_KEY = 'k7';
+    tried.length = 0;
+    await callProvider('gemini', { mode: 'api', model: '', system: 's', prompt: 'p' });
+    assert.deepEqual(tried, ['gemini-2.5-flash'], '기본 모델이 목록에 있으면 우선');
+    resetModelMemory();
+    process.env.GEMINI_API_KEY = 'k6';
+    global.fetch = async () => ({ ok: true, json: async () => ({ models: ['gemini-4-argon', 'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'].map((n) => ({ name: 'models/' + n, supportedGenerationMethods: ['generateContent'] })) }) });
+    // 직접 고른 모델은 대체하지 않고 오류를 그대로 보여 준다
+    tried.length = 0;
+    await assert.rejects(callProvider('gemini', { mode: 'api', model: 'gemini-3.5-flash', system: 's', prompt: 'p' }), /limit: 0/);
+    assert.deepEqual(tried, ['gemini-3.5-flash'], '직접 고른 모델은 대체 없음');
+    // 일시적 속도 제한은 다른 모델로 바꾸지 않는다
+    resetModelMemory();
+    PROVIDERS.gemini.call = async ({ model }) => { tried.push(model); throw new Error('HTTP 429: Please retry in 5s. limit: 10'); };
+    tried.length = 0;
+    await assert.rejects(callProvider('gemini', { mode: 'api', model: '', system: 's', prompt: 'p' }), /retry in 5s/);
+    assert.equal(tried.length, 1, '속도 제한은 재시도 후보로 넘어가지 않음');
+    PROVIDERS.gemini.call = realCall;
+    resetModelMemory();
     console.log('OK: 모델 목록/추천/힌트');
   } catch (e) {
     console.error(e);

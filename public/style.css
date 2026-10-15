@@ -153,3 +153,5 @@ body.sg button:not(.ghost):not(#stop) { background: var(--accent); }
   .seat.sage { display: none; }
   .seat-title { display: none; }
 }
+
+.msg-head small.model { margin-left: auto; font-family: ui-monospace, Consolas, monospace; font-size: 11px; opacity: .8; }
