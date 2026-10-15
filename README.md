@@ -50,6 +50,18 @@ npm run build:exe:win    # Windows용(.exe)을 다른 OS에서 교차 빌드
 - macOS용은 서명(codesign) 때문에 macOS에서 빌드해야 합니다. 3개 OS용을 한 번에 받으려면 GitHub의 **Actions → Build executables → Run workflow** 를 실행하고 결과 Artifacts 를 내려받으세요. (`v1.0.0` 같은 태그를 푸시하면 Release 에 자동 첨부됩니다.)
 - 서명되지 않은 실행파일이라 Windows SmartScreen("PC를 보호했습니다")이나 macOS 보안 경고가 뜰 수 있습니다. Windows는 "추가 정보 → 실행", macOS는 우클릭 → 열기로 실행하세요.
 
+## 삼국지 모드
+
+화면 왼쪽의 **삼국지 모드**(기본 켜짐)를 끄면 일반 화면으로 바뀝니다. 선택은 브라우저에 기억됩니다.
+
+| 캐릭터 | AI | 성격 |
+|---|---|---|
+| 유비 (備) | Claude | 온화하고 신중. 맏형으로 **최종 결단을 주재** |
+| 관우 (羽) | GPT | 강직하고 원칙적 |
+| 장비 (飛) | Gemini | 호탕하고 직설적 |
+
+군의(軍議) 자리에서 누가 숙고 중인지 실시간으로 보이고, 발언은 사극풍 말투로 나옵니다. 말투는 가볍게 곁들이는 수준이며 분석 내용과 형식은 그대로입니다. 최종 결단 문서는 평소처럼 알아보기 쉬운 형식으로 정리됩니다. 캐릭터 설정은 `lib/personas.js` 에서 바꿀 수 있습니다.
+
 ## 회의 방식
 
 1. **1라운드**: 각 AI가 서로의 답을 보지 않고 독립적으로 의견을 냅니다. (병렬 호출)
@@ -66,6 +78,7 @@ npm run build:exe:win    # Windows용(.exe)을 다른 OS에서 교차 빌드
 ```
 server.js          HTTP 서버, SSE 스트리밍 (/api/council, /api/config)
 lib/council.js     회의 진행 로직 (라운드, 프롬프트, 사회자)
+lib/personas.js    삼국지 캐릭터 설정 (이름, 색, 말투)
 lib/providers.js   OpenAI / Gemini / Anthropic API 어댑터 + CLI 실행기 (+ 데모 모드)
 public/            웹 화면 (index.html, app.js, style.css)
 test/smoke.js      데모 모드 통합 테스트

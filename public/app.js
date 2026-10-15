@@ -7,6 +7,11 @@ let mode = 'api';
 const ok = (p) => (mode === 'cli' ? p.cliAvailable : p.apiConfigured);
 let history = []; // 이전 회의의 질문/결론 (후속 질문에 맥락으로 전달)
 let controller = null;
+let sg = true; // 삼국지 모드
+try { sg = localStorage.getItem('sg') !== '0'; } catch {}
+const byId = (id) => providers.find((p) => p.id === id);
+const nameOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.name : byId(id)?.label || id);
+const colorOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.color : COLORS[id] || 'var(--accent)');
 
 // --- 아주 작은 마크다운 렌더러 (HTML 이스케이프 후 변환) ---
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -43,7 +48,7 @@ function renderParticipants() {
     const card = document.createElement('div');
     card.className = 'p-card' + (ok(p) ? '' : ' off');
     card.innerHTML = `
-      <div class="p-head"><span class="dot" style="background:${COLORS[p.id]}"></span>${p.label}<span class="vendor">${p.vendor}</span>
+      <div class="p-head"><span class="dot" style="background:${colorOf(p.id)}"></span>${esc(nameOf(p.id))}<span class="vendor">${sg ? p.label + ' · ' : ''}${p.vendor}</span>
         <label><input type="checkbox" data-id="${p.id}" ${ok(p) ? 'checked' : 'disabled'}> 참가</label></div>
       <input type="text" data-model="${p.id}" value="${mode === 'cli' ? '' : esc(p.model)}" placeholder="${mode === 'cli' ? '비우면 CLI 기본 모델' : ''}" list="models-${p.id}" ${ok(p) ? '' : 'disabled'} aria-label="${p.label} 모델">
       <datalist id="models-${p.id}">${p.models.map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
@@ -56,8 +61,10 @@ function renderParticipants() {
 const selected = () => providers.filter((p) => document.querySelector(`input[data-id="${p.id}"]`)?.checked);
 function renderModerator() {
   const sel = $('moderator'), prev = sel.value;
-  sel.innerHTML = selected().map((p) => `<option value="${p.id}">${p.label}</option>`).join('');
+  sel.innerHTML = selected().map((p) => `<option value="${p.id}">${esc(nameOf(p.id))}${sg ? ` (${p.label})` : ''}</option>`).join('');
   if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
+  else if (sg && [...sel.options].some((o) => o.value === 'claude')) sel.value = 'claude'; // 맏형 유비가 주재
+  refreshStage();
 }
 
 // --- 피드 ---
@@ -70,7 +77,36 @@ function add(html, cls = '') {
   feed.scrollTop = feed.scrollHeight;
   return el;
 }
-const head = (id, label, extra = '') => `<div class="msg-head"><span class="dot" style="background:${COLORS[id] || 'var(--accent)'}"></span>${esc(label)} ${extra}</div>`;
+const head = (id, label, extra = '') => {
+  const p = byId(id);
+  const who = sg && p?.persona ? `${esc(p.persona.name)} <small>${esc(p.label)}</small>` : esc(label);
+  const mark = sg && p?.persona ? `<span class="mini-seal" style="--c:${p.persona.color}">${p.persona.hanja}</span>`
+    : sg && !id ? '<span class="mini-seal" style="--c:var(--accent)">決</span>'
+    : `<span class="dot" style="background:${colorOf(id)}"></span>`;
+  return `<div class="msg-head">${mark}${who} ${extra}</div>`;
+};
+
+// --- 군의 자리(무대) ---
+const STATE = { idle: '대기', thinking: '숙고 중…', speaking: '결단 중…', done: '발언 완료', error: '낙마(오류)' };
+function renderStage(ids) {
+  const stage = $('stage');
+  stage.hidden = !sg || !ids.length;
+  stage.innerHTML = ids.map((id) => {
+    const p = byId(id).persona;
+    return `<div class="seat" data-seat="${id}" style="--c:${p.color}">
+      <div class="seal">${p.hanja}</div>
+      <div class="seat-info"><div class="seat-name">${esc(p.name)} <small>${esc(byId(id).label)}</small></div>
+      <div class="seat-title">${esc(p.title)}</div><div class="seat-state">${STATE.idle}</div></div></div>`;
+  }).join('');
+}
+function seat(id, state) {
+  const el = document.querySelector(`[data-seat="${id}"]`);
+  if (!el) return;
+  el.className = 'seat ' + state;
+  el.querySelector('.seat-state').textContent = STATE[state];
+}
+const ORDER = ['claude', 'gpt', 'gemini']; // 유비(맏형) · 관우 · 장비
+const refreshStage = () => renderStage(selected().map((p) => p.id).sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)));
 const pending = {}; // key -> element
 
 function handle(ev, ctx) {
@@ -80,22 +116,26 @@ function handle(ev, ctx) {
     case 'round': {
       const el = document.createElement('div');
       el.className = 'round';
-      el.textContent = `── ${ev.round}라운드 / 총 ${ev.total}라운드 ──`;
+      el.textContent = sg ? `── 제${ev.round}차 군의(軍議) · 총 ${ev.total}차 ──` : `── ${ev.round}라운드 / 총 ${ev.total}라운드 ──`;
+      if (sg && ev.round > 1) document.querySelectorAll('.seat').forEach((e) => seat(e.dataset.seat, 'idle'));
       feed.appendChild(el);
       break;
     }
     case 'thinking': {
       const label = ctx.labels[ev.who];
+      seat(ev.who, ev.round === 'final' ? 'speaking' : 'thinking');
       pending[key(ev.round, ev.who)] = add(head(ev.who, label, ev.round === 'final' ? '<small>결론 정리 중</small>' : '<small>생각 중</small>'), 'pending ' + ev.who);
       break;
     }
     case 'turn': {
+      seat(ev.who, 'done');
       const el = pending[key(ev.round, ev.who)] || add('', ev.who);
       el.className = 'msg ' + ev.who;
       el.innerHTML = head(ev.who, ev.label) + `<div class="msg-body">${md(ev.text)}</div>`;
       break;
     }
     case 'turn_error': {
+      seat(ev.who, 'error');
       const el = pending[key(ev.round, ev.who)] || add('', '');
       el.className = 'msg err';
       el.innerHTML = head(ev.who, ev.label, '<small>오류</small>') + `<div>${esc(ev.error)}</div>`;
@@ -103,7 +143,8 @@ function handle(ev, ctx) {
     }
     case 'final': {
       pending[key('final', ev.who)]?.remove();
-      add(head('', '최종 결론', `<small>사회자: ${esc(ev.label)}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`, 'final');
+      seat(ev.who, 'done');
+      add(head('', sg ? '최종 결단(決斷)' : '최종 결론', `<small>${sg ? '주재' : '사회자'}: ${esc(nameOf(ev.who))}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`, 'final');
       ctx.conclusion = ev.text;
       break;
     }
@@ -120,6 +161,7 @@ async function runMeeting(question) {
   setBusy(true);
   controller = new AbortController();
   const ctx = { labels: {}, conclusion: null };
+  refreshStage();
   try {
     const res = await fetch('/api/council', {
       method: 'POST',
@@ -129,6 +171,7 @@ async function runMeeting(question) {
         question,
         participants: chosen.map((p) => ({ id: p.id, model: document.querySelector(`input[data-model="${p.id}"]`).value })),
         mode,
+        persona: sg,
         rounds: Number($('rounds').value),
         moderator: $('moderator').value,
         history,
@@ -183,6 +226,20 @@ $('reset').addEventListener('click', () => {
   feed.innerHTML = '<div class="empty">새 회의를 시작합니다. 질문을 입력하세요.</div>';
 });
 
+function applyTheme() {
+  document.body.classList.toggle('sg', sg);
+  $('sg').checked = sg;
+  document.title = sg ? '桃園 · AI 군의' : 'AI 회의실';
+  $('title').textContent = sg ? 'AI 도원결의' : 'AI 회의실';
+  $('subtitle').textContent = sg ? '유비 · 관우 · 장비가 군의(軍議)를 열어 결단을 내립니다.' : 'GPT · Gemini · Claude가 함께 토론하고 결론을 정리합니다.';
+  if (providers.length) { $('moderator').value = ''; renderParticipants(); }
+}
+$('sg').addEventListener('change', (e) => {
+  sg = e.target.checked;
+  try { localStorage.setItem('sg', sg ? '1' : '0'); } catch {}
+  applyTheme();
+});
+
 function setMode(m) {
   mode = m;
   document.querySelector(`input[name=mode][value=${m}]`).checked = true;
@@ -197,6 +254,7 @@ fetch('/api/config').then((r) => r.json()).then((cfg) => {
   providers = cfg.providers;
   $('demo').hidden = !cfg.mock;
   setMode(cfg.defaultMode);
+  applyTheme();
   if (!providers.some((p) => p.apiConfigured || p.cliAvailable)) {
     add('<div>사용 가능한 AI가 없습니다. <code>.env</code> 에 API 키를 넣거나 claude / codex / gemini CLI를 설치·로그인하세요. (README 참고)</div>', 'err');
   }
