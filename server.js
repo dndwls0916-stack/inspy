@@ -4,7 +4,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { loadEnv, appDir } = require('./lib/env');
 loadEnv();
-const { PROVIDERS, isConfigured, hasApiKey, cliAvailable, defaultModel, isMock } = require('./lib/providers');
+const { PROVIDERS, isConfigured, hasApiKey, cliAvailable, defaultModel, pinnedModel, isMock } = require('./lib/providers');
 
 // 단일 실행파일(SEA)로 실행 중이면 화면 파일을 실행파일 안에서 읽는다.
 let sea = null;
@@ -87,7 +87,7 @@ function config() {
       cliBin: p.cli.bin,
       persona: PERSONAS[id],
       model: defaultModel(id),
-      modelPinned: Boolean(process.env[p.modelEnv]),
+      modelPinned: Boolean(pinnedModel(id)),
       cliModels: cliModelChoices(id),
       models: p.models,
     })),

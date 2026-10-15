@@ -199,7 +199,7 @@ function handle(ev, ctx) {
       caption(ev.who, ev.text);
       const el = pending[key(ev.round, ev.who)] || add('', ev.who);
       el.className = 'msg ' + ev.who;
-      el.innerHTML = head(ev.who, ev.label, `<small class="model">${esc(ev.model || 'CLI 기본')}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`;
+      el.innerHTML = head(ev.who, ev.label, `<small class="model" title="${ev.requested && ev.requested !== ev.model ? `선택한 ${esc(ev.requested)} 는 사용할 수 없어 대체했습니다` : ''}">${esc(ev.model || 'CLI 기본')}${ev.requested && ev.requested !== ev.model ? ` ← ${esc(ev.requested)} 대체` : ''}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`;
       break;
     }
     case 'turn_error': {
