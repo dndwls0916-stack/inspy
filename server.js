@@ -18,12 +18,14 @@ const { PERSONAS, SAGE } = require('./lib/personas');
 const PORT = Number(process.env.PORT) || 3000;
 // 시작 시 기본 실행 방식: --mode=cli | --mode=api (또는 MODE 환경변수). 화면에서 바꿀 수 있다.
 const argMode = (process.argv.find((a) => a.startsWith('--mode=')) || '').slice(7);
-const explicitMode = [argMode, process.env.MODE].find((m) => m === 'api' || m === 'cli');
-// 지정이 없으면: API 키가 하나라도 있으면 api, 없고 CLI가 있으면 cli
+const MODES = ['api', 'cli', 'mixed'];
+const explicitMode = [argMode, process.env.MODE].find((m) => MODES.includes(m));
+// 지정이 없으면: 키와 CLI 가 모두 있으면 mixed, 키만 있으면 api, CLI 만 있으면 cli
 const autoMode = () => {
   const ids = Object.keys(PROVIDERS);
-  if (ids.some(hasApiKey)) return 'api';
-  return ids.some(cliAvailable) ? 'cli' : 'api';
+  const anyKey = ids.some(hasApiKey);
+  const anyCli = ids.some(cliAvailable);
+  return anyKey && anyCli ? 'mixed' : anyKey ? 'api' : anyCli ? 'cli' : 'api';
 };
 const PUBLIC = path.join(__dirname, 'public');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
@@ -101,19 +103,23 @@ async function handleCouncil(req, res) {
   if (!question) return sendJson(res, 400, { error: '질문을 입력하세요' });
   if (question.length > 8000) return sendJson(res, 400, { error: '질문이 너무 깁니다 (8000자 이하)' });
 
-  const mode = body.mode === 'cli' ? 'cli' : 'api';
+  const mode = MODES.includes(body.mode) ? body.mode : 'api';
   const participants = (Array.isArray(body.participants) ? body.participants : [])
     .filter((p, i, a) => PROVIDERS[p?.id] && a.findIndex((q) => q.id === p.id) === i)
     .map((p) => {
       const typed = String(p.model || '').trim().slice(0, 100);
       // CLI 모드에서 모델을 비우면 CLI 자체 기본 모델을 쓴다.
-      return { id: p.id, model: mode === 'cli' ? typed : typed || defaultModel(p.id) };
+      return { id: p.id, model: mode === 'api' ? typed || defaultModel(p.id) : typed };
     });
   if (!participants.length) return sendJson(res, 400, { error: '참가할 AI를 한 명 이상 선택하세요' });
   const missing = participants.filter((p) => !isConfigured(p.id, mode));
   if (missing.length) {
-    const what = mode === 'cli' ? missing.map((p) => `${PROVIDERS[p.id].cli.bin} CLI`) : missing.map((p) => PROVIDERS[p.id].keyEnv);
-    return sendJson(res, 400, { error: mode === 'cli' ? `CLI가 설치되어 있지 않습니다: ${what.join(', ')}` : `.env 에 키가 없습니다: ${what.join(', ')}` });
+    const names = missing.map((p) => PROVIDERS[p.id]);
+    const error =
+      mode === 'cli' ? `CLI가 설치되어 있지 않습니다: ${names.map((n) => `${n.cli.bin} CLI`).join(', ')}`
+      : mode === 'mixed' ? `API 키도 CLI도 없습니다: ${names.map((n) => `${n.label}(${n.keyEnv} 또는 ${n.cli.bin} CLI)`).join(', ')}`
+      : `.env 에 키가 없습니다: ${names.map((n) => n.keyEnv).join(', ')}`;
+    return sendJson(res, 400, { error });
   }
 
   const rounds = Math.min(3, Math.max(1, Number(body.rounds) || 2));

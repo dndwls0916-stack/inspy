@@ -11,6 +11,7 @@
     "start": "node server.js",
     "start:api": "node server.js --mode=api",
     "start:cli": "node server.js --mode=cli",
+    "start:mixed": "node server.js --mode=mixed",
     "demo": "MOCK=1 node server.js",
     "build:exe": "node scripts/build.js",
     "build:exe:win": "node scripts/build.js --target=win-x64",

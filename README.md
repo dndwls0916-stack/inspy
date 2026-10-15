@@ -13,8 +13,12 @@
 | 속도·안정성 | 빠름, 모델 지정 쉬움 | 호출마다 프로세스 실행이라 느림 |
 | 시작 | `npm run start:api` | `npm run start:cli` |
 
+**혼합 방식**: AI마다 *API 키가 있으면 API, 없으면 CLI* 를 자동 선택합니다. (예: Claude·GPT 는 CLI 로그인, Gemini 는 무료 API 키) 시작 방식을 지정하지 않으면 키와 CLI 가 모두 있을 때 혼합으로 시작합니다. `npm run start:mixed` 로도 시작할 수 있습니다.
+
+> ⚠️ Gemini CLI 의 개인 구글 계정 로그인("Sign in with Google")은 Google 정책 변경으로 막힌 경우가 있습니다(`This client is no longer supported for Gemini Code Assist for individuals`). Gemini 는 API 키(aistudio.google.com, 무료 사용량 있음)로 쓰고 혼합 방식을 사용하세요.
+
 `npm start` 는 기본 방식(API)으로 시작하고, **어느 쪽으로 시작하든 화면 왼쪽의 "실행 방식"에서 바꿀 수 있습니다.**
-(기본 방식은 `MODE=cli` 환경변수로도 지정 가능. 두 방식을 섞어 쓸 수는 없고 회의 단위로 하나를 선택합니다.)
+(기본 방식은 `MODE=api|cli|mixed` 환경변수로도 지정할 수 있고, 방식은 회의 단위로 하나를 선택합니다.)
 
 ```bash
 cp .env.example .env     # API 방식: 사용할 AI의 키만 채우세요 (키가 있는 AI만 참가)

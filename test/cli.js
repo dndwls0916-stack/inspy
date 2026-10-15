@@ -18,7 +18,7 @@ delete process.env.MOCK;
 for (const k of ['OPENAI_API_KEY', 'GEMINI_API_KEY', 'ANTHROPIC_API_KEY']) delete process.env[k];
 
 const { server } = require('../server');
-const { buildSpawn, pickWinBin, PROVIDERS } = require('../lib/providers');
+const { buildSpawn, pickWinBin, resolveMode, isConfigured, PROVIDERS } = require('../lib/providers');
 
 // --- Windows 실행 계획(순수 함수) 검증: 실제 Windows 가 없어도 인자 처리 규칙을 확인한다 ---
 {
@@ -39,6 +39,18 @@ const { buildSpawn, pickWinBin, PROVIDERS } = require('../lib/providers');
   // 실제 고정 인자는 모두 통과해야 한다
   for (const id of Object.keys(PROVIDERS)) buildSpawn('x.cmd', PROVIDERS[id].cli.args('some-model_1.5:pro'), 'win32');
   console.log('OK: Windows 실행 계획 규칙');
+}
+
+// --- 혼합 방식: 키가 있는 AI 는 API, 없는 AI 는 CLI ---
+{
+  process.env.GEMINI_API_KEY = 'test-key';
+  assert.equal(resolveMode('gemini', 'mixed'), 'api', '키 있으면 API');
+  assert.equal(resolveMode('claude', 'mixed'), 'cli', '키 없으면 CLI');
+  assert.equal(resolveMode('gemini', 'cli'), 'cli', 'cli 모드는 그대로');
+  assert.equal(resolveMode('gemini', 'api'), 'api', 'api 모드는 그대로');
+  assert(isConfigured('gemini', 'mixed') && isConfigured('claude', 'mixed'), '혼합은 둘 중 하나면 사용 가능');
+  delete process.env.GEMINI_API_KEY;
+  console.log('OK: 혼합 방식 선택 규칙');
 }
 
 async function sse(res) {
@@ -66,6 +78,7 @@ server.listen(0, '127.0.0.1', async () => {
 
     // API 모드인데 키가 없으면 거절
     assert.equal((await post({ question: 'Q', participants: [{ id: 'claude' }], mode: 'api' })).status, 400);
+    assert.equal(cfg.defaultMode, 'cli', '키 없이 CLI 만 있으면 cli 로 시작');
 
     // CLI 모드: claude 성공, gemini 실패(회의는 계속), 사회자는 claude
     const res = await post({ question: 'Q-MARK', participants: [{ id: 'claude', model: 'm1' }, { id: 'gpt' }, { id: 'gemini' }], rounds: 1, moderator: 'claude', mode: 'cli' });
