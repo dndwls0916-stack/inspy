@@ -13,7 +13,7 @@ try {
   if (m.isSea()) sea = m;
 } catch {}
 const { runCouncil } = require('./lib/council');
-const { listAllModels } = require('./lib/models');
+const { listAllModels, cliModelChoices } = require('./lib/models');
 const { PERSONAS, SAGE } = require('./lib/personas');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -88,6 +88,7 @@ function config() {
       persona: PERSONAS[id],
       model: defaultModel(id),
       modelPinned: Boolean(process.env[p.modelEnv]),
+      cliModels: cliModelChoices(id),
       models: p.models,
     })),
   };
@@ -111,7 +112,7 @@ async function handleCouncil(req, res) {
     .map((p) => {
       const typed = String(p.model || '').trim().slice(0, 100);
       // CLI 모드에서 모델을 비우면 CLI 자체 기본 모델을 쓴다.
-      return { id: p.id, model: mode === 'api' ? typed || defaultModel(p.id) : typed };
+      return { id: p.id, model: typed }; // 비우면 호출 시점에 자동 결정(API: 서비스 목록의 추천, CLI: CLI 기본)
     });
   if (!participants.length) return sendJson(res, 400, { error: '참가할 AI를 한 명 이상 선택하세요' });
   const missing = participants.filter((p) => !isConfigured(p.id, mode));
