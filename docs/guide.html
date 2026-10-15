@@ -40,7 +40,7 @@
   <nav><a href="#start">빠른 시작</a><a href="#setup">AI 연결하기</a><a href="#use">화면 사용법</a><a href="#cost">비용</a><a href="#trouble">문제 해결</a><a href="#other">Mac · Linux · 개발자</a></nav>
 
   <div class="box warn"><b class="t">먼저 알아두세요</b>
-  이 프로그램은 <b>내 컴퓨터에서만</b> 돌아가는 개인용 도구입니다. 설치가 필요 없고, 다만 <b>GPT·Gemini·Claude를 쓰려면 각 서비스의 API 키(또는 CLI 로그인)가 있어야</b> 회의가 됩니다. (아래 2번)
+  이 프로그램은 <b>내 컴퓨터에서만</b> 돌아가는 개인용 도구입니다. 설치가 필요 없고, 다만 <b>GPT·Gemini·Claude를 쓰려면 각 서비스의 CLI 로그인(또는 API 키)이 준비되어야</b> 회의가 됩니다. (아래 2번)
   </div>
 
   <h2 id="start">1. 빠른 시작 (Windows)</h2>
@@ -48,7 +48,7 @@
     <li><b>압축 풀기</b> — 받은 <code>ai-council-windows.zip</code>을 우클릭 → <b>모두 압축 풀기</b>. 원하는 폴더(예: 바탕화면)에 풉니다. 폴더 안에는 <code>ai-council-win-x64.exe</code>와 이 설명서가 있습니다. <i>(압축을 풀지 않고 zip 안에서 바로 실행하지 마세요.)</i></li>
     <li><b>실행하기</b> — <code>ai-council-win-x64.exe</code>를 더블클릭합니다. 검은 콘솔 창이 뜨고 잠시 뒤 <b>브라우저가 자동으로 열립니다</b>. 안 열리면 브라우저 주소창에 <code>http://localhost:3000</code>을 입력하세요.</li>
     <li><b>파란 경고가 뜨면</b> — "Windows의 PC 보호" 창이 나오면 <b>추가 정보 → 실행</b>을 누르세요. (서명하지 않은 개인 프로그램이라 나오는 정상 경고입니다.)</li>
-    <li><b>처음 한 번 설정</b> — 처음 실행하면 실행파일 옆에 <code>.env</code> 설정 파일이 자동으로 만들어집니다. 아래 <a href="#setup">2번</a>으로 AI를 연결하세요.</li>
+    <li><b>처음 한 번 설정</b> — 처음 실행하면 실행파일 옆에 <code>.env</code> 설정 파일이 자동으로 만들어집니다. 아래 <a href="#setup">2번</a>에서 AI를 연결하세요. (CLI 로그인 방식이면 이 파일은 건드리지 않아도 됩니다.)</li>
     <li><b>질문하기</b> — 아래 입력칸에 질문을 쓰고 <b>회의 시작</b>(<kbd>Ctrl</kbd>+<kbd>Enter</kbd>)을 누릅니다.</li>
     <li><b>끝내기</b> — 콘솔 창을 닫으면 프로그램이 종료됩니다.</li>
   </ol>
@@ -56,15 +56,37 @@
 
   <h2 id="setup">2. AI 연결하기 — 두 가지 중 하나를 고르세요</h2>
   <table>
-    <tr><th></th><th>A. API 키 방식</th><th>B. CLI 로그인 방식</th></tr>
-    <tr><th>이럴 때</th><td>제일 간단하고 안정적. <b>Windows는 이쪽을 권장</b></td><td>API 키 없이, 이미 쓰는 구독 로그인을 이용하고 싶을 때</td></tr>
-    <tr><th>준비물</th><td>각 서비스의 API 키</td><td><code>claude</code>·<code>codex</code>·<code>gemini</code> 프로그램을 설치하고 로그인</td></tr>
-    <tr><th>비용</th><td>쓴 만큼 API 요금</td><td>구독 한도 안에서</td></tr>
-    <tr><th>속도</th><td>빠름</td><td>호출마다 프로그램을 띄워 느림</td></tr>
+    <tr><th></th><th>A. CLI 로그인 방식</th><th>B. API 키 방식</th></tr>
+    <tr><th>이럴 때</th><td>API 키 없이, <b>이미 쓰는 구독(ChatGPT·Claude·Google 계정)</b>으로 쓰고 싶을 때</td><td>가장 빠르고 안정적. 쓴 만큼 과금되는 키가 있을 때</td></tr>
+    <tr><th>준비물</th><td><code>claude</code>·<code>codex</code>·<code>gemini</code> 프로그램을 설치하고 로그인</td><td>각 서비스의 API 키</td></tr>
+    <tr><th>비용</th><td>구독 한도 안에서</td><td>쓴 만큼 API 요금</td></tr>
+    <tr><th>속도</th><td>호출마다 프로그램을 띄워 느림 (한 번에 10~60초)</td><td>빠름</td></tr>
   </table>
   <p>두 방식을 한 회의에서 섞을 수는 없고, 화면 왼쪽 <b>실행 방식</b>에서 고릅니다. 키가 하나도 없고 CLI가 있으면 CLI 방식으로 자동 시작합니다. <b>쓸 AI만 연결하면 됩니다</b> — 하나만 연결해도 회의가 돌아갑니다(혼자 하는 회의).</p>
 
-  <h3>A. API 키 방식</h3>
+  <h3>A. CLI 로그인 방식</h3>
+  <p>각 AI의 공식 명령줄 프로그램(CLI)에 <b>한 번 로그인</b>해 두면, 이 프로그램이 그것을 대신 실행해 줍니다. API 키는 필요 없습니다. 쓸 AI만 준비하면 됩니다.</p>
+  <ol class="steps">
+    <li><b>Node.js 설치</b> — <code>codex</code>와 <code>gemini</code>는 npm으로 설치합니다. <b>nodejs.org</b>에서 <b>LTS</b> 버전을 설치하세요. (이 프로그램 자체는 Node.js가 필요 없지만, 이 CLI들은 필요합니다.) 설치 후에는 <b>새 명령 프롬프트(cmd) 창</b>을 여세요.</li>
+    <li><b>CLI 설치</b> — 명령 프롬프트나 PowerShell에 쓸 AI의 줄만 입력합니다.
+<pre>npm install -g @anthropic-ai/claude-code     (Claude → 유비)
+npm install -g @openai/codex                (GPT → 관우)
+npm install -g @google/gemini-cli           (Gemini → 장비)</pre>
+      <p>(Claude Code는 공식 설치 프로그램으로도 설치할 수 있습니다. 각 공식 문서의 안내가 바뀌었다면 그쪽을 따르세요.)</p></li>
+    <li><b>한 번씩 직접 실행해 로그인</b> — 명령 프롬프트에서 <code>claude</code>, <code>codex</code>, <code>gemini</code>를 각각 입력하면 브라우저 로그인 안내가 나옵니다. 로그인(구독 계정)을 마치고, 처음 나오는 "이 폴더를 신뢰하시겠습니까?" 같은 질문까지 <b>대화형으로 끝낸 뒤</b> 종료하세요. 이 과정을 건너뛰면 회의 중에 CLI가 질문에서 멈춰 시간 초과가 날 수 있습니다.</li>
+    <li><b>설치 확인</b> — <code>claude --version</code>, <code>codex --version</code>, <code>gemini --version</code>이 버전을 출력하면 됩니다.</li>
+    <li><b>이 프로그램 실행</b> — exe를 (새로) 더블클릭합니다. 콘솔에 <code>CLI 사용 가능: GPT, Gemini, Claude</code>처럼 인식한 AI가 표시되어야 합니다. 키가 하나도 없으면 <b>자동으로 CLI 방식</b>으로 시작합니다. (설치한 뒤에는 PATH가 반영되도록 반드시 새로 실행하세요.)</li>
+    <li><b>화면에서 확인</b> — 왼쪽 <b>실행 방식</b>이 <b>CLI 로그인</b>인지 보고, 참가자 카드에 경고가 없는지 확인합니다. 모델 칸은 <b>비워 두면 각 CLI의 기본 모델</b>을 씁니다.</li>
+  </ol>
+  <div class="box tip"><b class="t">CLI 방식 요령</b>
+    <ul>
+      <li>회의 1번 = AI 호출 <b>여러 번</b>입니다(3명×2라운드면 8번). 구독 한도가 빨리 줄 수 있으니 처음엔 <b>라운드 1</b>로 시험하세요.</li>
+      <li>한 번 호출에 10~60초 걸립니다. 3분 안에 응답이 없으면 그 카드에 시간 초과 오류가 표시되고 회의는 계속됩니다.</li>
+      <li>먼저 터미널에서 <code>claude -p "안녕"</code> 같은 명령이 <b>직접 되는지</b> 확인하면, 문제가 CLI 쪽인지 이 프로그램 쪽인지 바로 구분됩니다.</li>
+    </ul></div>
+  <div class="box warn"><b class="t">Windows 안내</b>npm으로 설치한 <code>codex</code>·<code>gemini</code>는 Windows에서 <code>.cmd</code> 파일입니다. 이 프로그램은 이를 자동으로 찾아 실행하도록 만들어 두었지만, <b>제작 환경에 Windows가 없어 실제 Windows에서는 아직 검증하지 못했습니다.</b> 안 되면 콘솔의 오류 메시지를 알려 주세요. 실행파일이 PATH에 없다면 <code>.env</code>에 <code>GEMINI_BIN=C:\경로\gemini.cmd</code>처럼 직접 적을 수 있습니다(<code>CLAUDE_BIN</code>, <code>CODEX_BIN</code>도 같음). 모델 이름에는 영문·숫자·<code>. _ : / -</code>만 쓸 수 있습니다.</div>
+
+  <h3>B. API 키 방식</h3>
   <ol class="steps">
     <li><b>키 발급받기</b> (각 사이트에서 로그인 후 "API Keys" 메뉴. 결제 수단이나 크레딧이 필요할 수 있습니다)
       <table>
@@ -83,14 +105,6 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx</pre></li>
     <li><b>다시 실행</b> — 콘솔 창을 닫고 exe를 다시 더블클릭합니다. 콘솔에 <code>API 사용 가능: GPT, Claude</code>처럼 인식한 AI가 표시되면 성공입니다. (<code>.env</code>를 고치면 항상 다시 실행해야 반영됩니다.)</li>
   </ol>
   <div class="box stop"><b class="t">키는 비밀번호와 같습니다</b>키를 채팅·메일·스크린샷으로 남에게 보내지 마세요. <code>.env</code> 파일이 든 폴더를 통째로 공유하지 마세요. 노출됐다면 해당 사이트에서 키를 삭제하고 새로 발급받으세요.</div>
-
-  <h3>B. CLI 로그인 방식</h3>
-  <ol class="steps">
-    <li>쓸 AI의 CLI를 설치하고 한 번 로그인해 둡니다: <b>Claude Code</b>(<code>claude</code>), <b>Codex CLI</b>(<code>codex</code>), <b>Gemini CLI</b>(<code>gemini</code>). 각 공식 문서의 설치 안내를 따르세요.</li>
-    <li>명령 프롬프트에서 <code>claude --version</code>처럼 입력해 설치를 확인합니다.</li>
-    <li>프로그램을 실행하고 화면 왼쪽 <b>실행 방식 → CLI 로그인</b>을 선택합니다. 모델 칸을 비우면 각 CLI의 기본 모델을 씁니다.</li>
-  </ol>
-  <div class="box warn"><b class="t">Windows 주의</b>npm으로 설치한 <code>codex</code>·<code>gemini</code>는 Windows에서 <code>.cmd</code> 형태라 <b>이 프로그램에서 호출되지 않을 수 있습니다.</b> 그럴 땐 API 키 방식을 쓰거나 WSL(Linux)에서 실행하세요. <code>claude</code>는 단독 실행파일로 설치하면 동작합니다. 실행파일 위치가 PATH에 없다면 <code>.env</code>에 <code>CLAUDE_BIN=C:\경로\claude.exe</code>처럼 적으세요.</div>
 
   <h2 id="use">3. 화면 사용법</h2>
   <table>
@@ -113,8 +127,8 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx</pre></li>
   <p>한 AI에서 오류가 나도 회의는 계속되고, 결론 담당이 실패하면 다른 AI가 대신 정리합니다. 오류는 해당 카드에 이유가 표시됩니다.</p>
   <div class="box tip"><b class="t">좋은 질문 요령</b>배경·제약·원하는 결과를 함께 적으면 토론이 훨씬 날카로워집니다. 예) "팀 3명, 예산 적음, 3개월 안에 출시. 웹과 앱 중 무엇을 먼저?"</div>
 
-  <h2 id="cost">4. 비용과 한도 (API 방식)</h2>
-  <p>한 번의 회의에서 AI 호출 횟수는 대략 <b>참가자 수 × 라운드 수 + 1(결론) + 1(제갈량)</b>입니다. 예) 3명 × 2라운드 → <b>8회</b>. 사회자와 제갈량은 결론을 쓴 같은 AI가 맡습니다. 요금을 아끼려면 라운드를 1로 줄이거나, 참가자를 줄이거나, 삼국지 모드를 끄세요(제갈량 호출 -1). 각 사이트에서 <b>월 사용 한도(Usage limit)</b>를 걸어 두면 안전합니다.</p>
+  <h2 id="cost">4. 비용과 한도</h2>
+  <p>한 번의 회의에서 AI 호출 횟수는 대략 <b>참가자 수 × 라운드 수 + 1(결론) + 1(제갈량)</b>입니다. 예) 3명 × 2라운드 → <b>8회</b>. 사회자와 제갈량은 결론을 쓴 같은 AI가 맡습니다. 요금을 아끼려면 라운드를 1로 줄이거나, 참가자를 줄이거나, 삼국지 모드를 끄세요(제갈량 호출 -1). API 방식은 각 사이트에서 <b>월 사용 한도(Usage limit)</b>를 걸어 두면 안전합니다. CLI 방식은 별도 요금은 없지만 같은 횟수만큼 <b>구독의 사용량 한도</b>를 소모합니다.</p>
 
   <h2 id="trouble">5. 문제 해결</h2>
   <details><summary>브라우저가 자동으로 안 열려요</summary><p>주소창에 <code>http://localhost:3000</code>을 직접 입력하세요. 콘솔 창에 적힌 주소와 같습니다.</p></details>
@@ -123,7 +137,9 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx</pre></li>
   <details><summary>카드에 "HTTP 401" / "invalid api key"</summary><p>키가 틀렸거나 삭제됐습니다. 새로 발급받아 <code>.env</code>를 고치고 재실행하세요.</p></details>
   <details><summary>카드에 "HTTP 404" / "model not found"</summary><p>그 계정에서 쓸 수 없는 모델 이름입니다. 왼쪽 참가자 카드의 <b>모델 칸</b>을 계정에서 쓸 수 있는 모델로 바꾸세요. (모델 이름은 서비스가 자주 바꿉니다.)</p></details>
   <details><summary>카드에 "HTTP 429" / quota</summary><p>사용 한도나 크레딧이 소진됐거나 요청이 너무 빠릅니다. 결제·크레딧을 확인하고 잠시 뒤 다시 시도하세요.</p></details>
-  <details><summary>"'xxx' 명령을 찾을 수 없습니다" (CLI 방식)</summary><p>해당 CLI가 설치되지 않았거나 PATH에 없습니다. 설치하거나 <code>.env</code>에 <code>CLAUDE_BIN</code> / <code>CODEX_BIN</code> / <code>GEMINI_BIN</code>으로 경로를 적으세요. Windows의 <code>.cmd</code> 한계는 2번 참고.</p></details>
+  <details><summary>"'xxx' 명령을 찾을 수 없습니다" / 참가자 카드에 "CLI 설치·로그인이 필요합니다"</summary><p>해당 CLI가 설치되지 않았거나 PATH에 없습니다. ① 명령 프롬프트에서 <code>claude --version</code>(또는 codex/gemini)이 되는지 확인 ② 설치 직후라면 <b>이 프로그램을 껐다가 새로 실행</b> ③ 그래도 안 되면 <code>.env</code>에 <code>CLAUDE_BIN</code> / <code>CODEX_BIN</code> / <code>GEMINI_BIN</code>으로 전체 경로를 적고 재실행하세요.</p></details>
+  <details><summary>CLI 카드에 "종료 코드 1 …" 또는 시간 초과</summary><p>카드에 표시된 마지막 메시지를 먼저 읽어 보세요. 대부분 ① 로그인이 안 됐거나 만료됨 → 해당 CLI를 직접 실행해 다시 로그인 ② 처음 실행 시 나오는 질문(폴더 신뢰, 약관 등)에서 멈춤 → 대화형으로 한 번 끝내기 ③ 구독 사용량 한도 소진 → 시간이 지난 뒤 재시도 ④ 인터넷 연결입니다. 터미널에서 <code>claude -p "안녕"</code>이 직접 되는지 확인하면 원인을 가를 수 있습니다.</p></details>
+  <details><summary>"CLI 인자에 사용할 수 없는 문자가 있습니다"</summary><p>모델 입력칸에 허용되지 않는 문자가 있습니다. 영문·숫자·<code>. _ : / -</code>만 쓰거나, 칸을 비워 CLI 기본 모델을 쓰세요.</p></details>
   <details><summary>백신이 실행파일을 막아요</summary><p>서명되지 않은 단일 실행파일이라 일부 백신이 의심할 수 있습니다. 직접 받은 파일이 맞다면 예외로 등록하세요. 마음에 걸리면 아래 "개발자" 방법으로 소스에서 직접 실행할 수 있습니다.</p></details>
   <details><summary>화면이 오래된 모습이에요</summary><p>브라우저에서 <kbd>Ctrl</kbd>+<kbd>F5</kbd>로 새로고침하세요.</p></details>
   <details><summary>삼국지 말투가 어색해요</summary><p>AI가 말투를 가볍게 흉내 내는 수준입니다. 내용은 일반 모드와 동일하니, 거슬리면 삼국지 모드를 끄세요.</p></details>

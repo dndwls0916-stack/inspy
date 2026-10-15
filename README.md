@@ -27,7 +27,8 @@ CLI 방식 참고:
 - CLI는 서버가 임시 폴더에서 실행하며, 프롬프트는 stdin 으로 전달합니다. (셸을 거치지 않음)
 - 모델 입력칸을 비우면 각 CLI의 기본 모델을 씁니다.
 - CLI 경로가 다르면 `CLAUDE_BIN`, `CODEX_BIN`, `GEMINI_BIN` 으로 지정하세요.
-- Linux / macOS / WSL 기준입니다. Windows 네이티브(.cmd 실행 파일)는 지원하지 않습니다.
+- Windows 에서 npm 으로 설치한 `.cmd` CLI 도 자동으로 찾아 실행합니다. 인자는 허용 문자(영문/숫자/`. _ : / -`)만 통과시키며 프롬프트는 stdin 으로만 전달합니다. (실제 Windows 에서는 아직 검증하지 못한 기능입니다.)
+- 설치·로그인: `npm i -g @anthropic-ai/claude-code @openai/codex @google/gemini-cli` 후 각각 `claude`, `codex`, `gemini` 를 한 번씩 실행해 로그인하세요.
 
 | AI | 환경변수 | 기본 모델 |
 |---|---|---|
