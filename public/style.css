@@ -56,3 +56,11 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   .layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .side { max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--line); }
 }
+
+.seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg label { flex: 1; text-align: center; cursor: pointer; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg span { display: block; padding: 7px 0; font-size: 13px; color: var(--muted); }
+.seg input:checked + span { background: var(--accent); color: #fff; }
+.seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+.hint { color: var(--muted); font-size: 12px; margin: 6px 0 0; }

@@ -3,6 +3,8 @@ const feed = $('feed'), form = $('form'), qEl = $('q'), sendBtn = $('send'), sto
 const COLORS = { gpt: 'var(--gpt)', gemini: 'var(--gemini)', claude: 'var(--claude)' };
 
 let providers = [];
+let mode = 'api';
+const ok = (p) => (mode === 'cli' ? p.cliAvailable : p.apiConfigured);
 let history = []; // 이전 회의의 질문/결론 (후속 질문에 맥락으로 전달)
 let controller = null;
 
@@ -39,13 +41,13 @@ function renderParticipants() {
   box.innerHTML = '';
   for (const p of providers) {
     const card = document.createElement('div');
-    card.className = 'p-card' + (p.configured ? '' : ' off');
+    card.className = 'p-card' + (ok(p) ? '' : ' off');
     card.innerHTML = `
       <div class="p-head"><span class="dot" style="background:${COLORS[p.id]}"></span>${p.label}<span class="vendor">${p.vendor}</span>
-        <label><input type="checkbox" data-id="${p.id}" ${p.configured ? 'checked' : 'disabled'}> 참가</label></div>
-      <input type="text" data-model="${p.id}" value="${esc(p.model)}" list="models-${p.id}" ${p.configured ? '' : 'disabled'} aria-label="${p.label} 모델">
+        <label><input type="checkbox" data-id="${p.id}" ${ok(p) ? 'checked' : 'disabled'}> 참가</label></div>
+      <input type="text" data-model="${p.id}" value="${mode === 'cli' ? '' : esc(p.model)}" placeholder="${mode === 'cli' ? '비우면 CLI 기본 모델' : ''}" list="models-${p.id}" ${ok(p) ? '' : 'disabled'} aria-label="${p.label} 모델">
       <datalist id="models-${p.id}">${p.models.map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
-      ${p.configured ? '' : `<div class="p-warn">.env 에 ${p.keyEnv} 가 필요합니다</div>`}`;
+      ${ok(p) ? '' : `<div class="p-warn">${mode === 'cli' ? `'${p.cliBin}' CLI 설치·로그인이 필요합니다` : `.env 에 ${p.keyEnv} 가 필요합니다`}</div>`}`;
     box.appendChild(card);
   }
   box.querySelectorAll('input[type=checkbox]').forEach((c) => c.addEventListener('change', () => { c.closest('.p-card').classList.toggle('off', !c.checked); renderModerator(); }));
@@ -126,6 +128,7 @@ async function runMeeting(question) {
       body: JSON.stringify({
         question,
         participants: chosen.map((p) => ({ id: p.id, model: document.querySelector(`input[data-model="${p.id}"]`).value })),
+        mode,
         rounds: Number($('rounds').value),
         moderator: $('moderator').value,
         history,
@@ -180,11 +183,21 @@ $('reset').addEventListener('click', () => {
   feed.innerHTML = '<div class="empty">새 회의를 시작합니다. 질문을 입력하세요.</div>';
 });
 
+function setMode(m) {
+  mode = m;
+  document.querySelector(`input[name=mode][value=${m}]`).checked = true;
+  $('modeHelp').textContent = m === 'cli'
+    ? '설치·로그인된 claude / codex / gemini CLI를 호출합니다. API 키가 필요 없습니다.'
+    : '.env 의 API 키로 각 AI를 직접 호출합니다.';
+  renderParticipants();
+}
+document.querySelectorAll('input[name=mode]').forEach((r) => r.addEventListener('change', () => setMode(r.value)));
+
 fetch('/api/config').then((r) => r.json()).then((cfg) => {
   providers = cfg.providers;
   $('demo').hidden = !cfg.mock;
-  renderParticipants();
-  if (!providers.some((p) => p.configured)) {
-    add('<div>사용 가능한 AI가 없습니다. <code>.env</code> 파일에 API 키를 넣고 서버를 다시 시작하세요. (README 참고)</div>', 'err');
+  setMode(cfg.defaultMode);
+  if (!providers.some((p) => p.apiConfigured || p.cliAvailable)) {
+    add('<div>사용 가능한 AI가 없습니다. <code>.env</code> 에 API 키를 넣거나 claude / codex / gemini CLI를 설치·로그인하세요. (README 참고)</div>', 'err');
   }
 });

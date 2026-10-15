@@ -7,7 +7,9 @@
   "engines": { "node": ">=18" },
   "scripts": {
     "start": "node server.js",
+    "start:api": "node server.js --mode=api",
+    "start:cli": "node server.js --mode=cli",
     "demo": "MOCK=1 node server.js",
-    "test": "MOCK=1 node test/smoke.js"
+    "test": "MOCK=1 node test/smoke.js && node test/cli.js"
   }
 }
