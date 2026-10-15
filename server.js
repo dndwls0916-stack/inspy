@@ -1,17 +1,51 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { loadEnv } = require('./lib/env');
+const { spawn } = require('child_process');
+const { loadEnv, appDir } = require('./lib/env');
 loadEnv();
 const { PROVIDERS, isConfigured, hasApiKey, cliAvailable, defaultModel, isMock } = require('./lib/providers');
+
+// 단일 실행파일(SEA)로 실행 중이면 화면 파일을 실행파일 안에서 읽는다.
+let sea = null;
+try {
+  const m = require('node:sea');
+  if (m.isSea()) sea = m;
+} catch {}
 const { runCouncil } = require('./lib/council');
 
 const PORT = Number(process.env.PORT) || 3000;
 // 시작 시 기본 실행 방식: --mode=cli | --mode=api (또는 MODE 환경변수). 화면에서 바꿀 수 있다.
 const argMode = (process.argv.find((a) => a.startsWith('--mode=')) || '').slice(7);
-const DEFAULT_MODE = [argMode, process.env.MODE].find((m) => m === 'api' || m === 'cli') || 'api';
+const explicitMode = [argMode, process.env.MODE].find((m) => m === 'api' || m === 'cli');
+// 지정이 없으면: API 키가 하나라도 있으면 api, 없고 CLI가 있으면 cli
+const autoMode = () => {
+  const ids = Object.keys(PROVIDERS);
+  if (ids.some(hasApiKey)) return 'api';
+  return ids.some(cliAvailable) ? 'cli' : 'api';
+};
 const PUBLIC = path.join(__dirname, 'public');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
+
+function readStatic(rel) {
+  if (sea) {
+    try {
+      return Buffer.from(sea.getAsset(`public/${rel}`));
+    } catch {
+      return null;
+    }
+  }
+  const file = path.join(PUBLIC, rel);
+  if (file.startsWith(PUBLIC + path.sep) && fs.existsSync(file) && fs.statSync(file).isFile()) return fs.readFileSync(file);
+  return null;
+}
+
+function openBrowser(url) {
+  const [cmd, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
+  try {
+    spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
+  } catch {}
+}
 
 function sendJson(res, status, obj) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
@@ -37,7 +71,7 @@ function readBody(req, limit = 1_000_000) {
 function config() {
   return {
     mock: isMock(),
-    defaultMode: DEFAULT_MODE,
+    defaultMode: explicitMode || autoMode(),
     providers: Object.entries(PROVIDERS).map(([id, p]) => ({
       id,
       label: p.label,
@@ -109,10 +143,10 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET') {
       const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-      const file = path.join(PUBLIC, rel);
-      if (file.startsWith(PUBLIC + path.sep) && fs.existsSync(file) && fs.statSync(file).isFile()) {
-        res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
-        return fs.createReadStream(file).pipe(res);
+      const body = readStatic(rel);
+      if (body) {
+        res.writeHead(200, { 'content-type': MIME[path.extname(rel)] || 'application/octet-stream' });
+        return res.end(body);
       }
     }
     sendJson(res, 404, { error: 'Not found' });
@@ -122,14 +156,38 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-if (require.main === module) {
+// 실행파일에서 더블클릭으로 실행하면 콘솔 창이 바로 닫히므로, 오류 시 키 입력을 기다린다.
+function fail(msg) {
+  console.error(msg);
+  if (sea) {
+    console.error('\n아무 키나 누르면 종료합니다...');
+    process.stdin.resume();
+    process.stdin.once('data', () => process.exit(1));
+  } else process.exit(1);
+}
+
+if (require.main === module || sea) {
+  if (sea) {
+    // 처음 실행이면 .env 템플릿을 실행파일 옆에 만들어 준다.
+    const envFile = path.join(appDir(), '.env');
+    if (!fs.existsSync(envFile)) {
+      try {
+        fs.writeFileSync(envFile, Buffer.from(sea.getAsset('.env.example')));
+        console.log(`설정 파일을 만들었습니다: ${envFile}\n(API 키 방식을 쓰려면 이 파일에 키를 넣고 다시 실행하세요. CLI 로그인 방식은 키가 필요 없습니다.)\n`);
+      } catch {}
+    }
+  }
+  server.on('error', (err) => fail(err.code === 'EADDRINUSE' ? `포트 ${PORT} 가 이미 사용 중입니다. 이미 실행 중이거나 .env 의 PORT 를 바꿔 주세요.` : String(err.message || err)));
   server.listen(PORT, '127.0.0.1', () => {
-    console.log(`AI 회의실: http://localhost:${PORT}${isMock() ? '  (데모 모드: 실제 AI 호출 없음)' : ''}`);
+    const url = `http://localhost:${PORT}`;
+    console.log(`AI 회의실: ${url}${isMock() ? '  (데모 모드: 실제 AI 호출 없음)' : ''}`);
     const ps = config().providers;
     const list = (k) => ps.filter((p) => p[k]).map((p) => p.label).join(', ') || '없음';
-    console.log(`기본 실행 방식: ${DEFAULT_MODE.toUpperCase()}  (화면에서 변경 가능)`);
+    console.log(`기본 실행 방식: ${config().defaultMode.toUpperCase()}  (화면에서 변경 가능)`);
     console.log(`  API 사용 가능: ${list('apiConfigured')}`);
     console.log(`  CLI 사용 가능: ${list('cliAvailable')}`);
+    if (sea && process.env.NO_OPEN !== '1') openBrowser(url);
+    if (sea) console.log('\n이 창을 닫으면 프로그램이 종료됩니다.');
   });
 }
 

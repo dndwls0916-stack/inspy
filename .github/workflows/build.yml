@@ -1,0 +1,48 @@
+name: Build executables
+
+# Actions 탭에서 "Run workflow" 로 수동 실행하거나, v* 태그를 푸시하면 실행됩니다.
+# 태그를 푸시하면 GitHub Release 에 실행파일이 자동으로 첨부됩니다.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, name: windows }
+          - { os: macos-latest, name: macos }
+          - { os: ubuntu-latest, name: linux }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test
+        shell: bash
+        if: matrix.os != 'windows-latest'
+      - run: npm run build:exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ai-council-${{ matrix.name }}
+          path: dist/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

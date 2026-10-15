@@ -4,12 +4,20 @@
   "description": "GPT, Gemini, Claude가 함께 회의하고 결론을 내려주는 로컬 웹 프로그램",
   "private": true,
   "type": "commonjs",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server.js",
     "start:api": "node server.js --mode=api",
     "start:cli": "node server.js --mode=cli",
     "demo": "MOCK=1 node server.js",
+    "build:exe": "node scripts/build.js",
+    "build:exe:win": "node scripts/build.js --target=win-x64",
     "test": "MOCK=1 node test/smoke.js && node test/cli.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "postject": "^1.0.0-alpha.6"
   }
 }
