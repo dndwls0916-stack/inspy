@@ -13,6 +13,7 @@ try {
   if (m.isSea()) sea = m;
 } catch {}
 const { runCouncil } = require('./lib/council');
+const { PERSONAS } = require('./lib/personas');
 
 const PORT = Number(process.env.PORT) || 3000;
 // 시작 시 기본 실행 방식: --mode=cli | --mode=api (또는 MODE 환경변수). 화면에서 바꿀 수 있다.
@@ -80,6 +81,7 @@ function config() {
       apiConfigured: hasApiKey(id),
       cliAvailable: cliAvailable(id),
       cliBin: p.cli.bin,
+      persona: PERSONAS[id],
       model: defaultModel(id),
       models: p.models,
     })),
@@ -125,7 +127,7 @@ async function handleCouncil(req, res) {
   const emit = (ev) => !res.writableEnded && res.write(`data: ${JSON.stringify(ev)}\n\n`);
 
   try {
-    await runCouncil({ question, participants, rounds, moderator, history, mode, emit, signal: ac.signal });
+    await runCouncil({ question, participants, rounds, moderator, history, mode, persona: body.persona === true, emit, signal: ac.signal });
   } catch (err) {
     emit({ type: 'error', error: String(err.message || err) });
   }

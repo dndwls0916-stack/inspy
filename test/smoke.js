@@ -38,6 +38,12 @@ server.listen(0, '127.0.0.1', async () => {
     assert.equal(events.filter((e) => e.type === 'final').length, 1);
     assert.equal(events.at(-1).type, 'done');
 
+    // 삼국지 모드: 말투 지침이 전달되고, 꺼져 있으면 전달되지 않는다.
+    const sg = await sse(await fetch(`${base}/api/council`, { method: 'POST', body: JSON.stringify({ question: 'Q', participants: [{ id: 'gpt' }], rounds: 1, persona: true }) }));
+    assert(sg.find((e) => e.type === 'turn').text.includes('(사극 말투)'), '삼국지 모드 말투');
+    assert(!turns[0].text.includes('(사극 말투)'), '일반 모드에는 말투 없음');
+    assert(cfg.providers.every((p) => p.persona?.name), '캐릭터 정보');
+
     assert.equal((await fetch(`${base}/`)).status, 200);
     assert.equal((await fetch(`${base}/../server.js`)).status, 404);
     console.log('OK: 회의 흐름 정상 (turns=%d)', turns.length);
