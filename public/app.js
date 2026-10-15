@@ -4,7 +4,7 @@ const COLORS = { gpt: 'var(--gpt)', gemini: 'var(--gemini)', claude: 'var(--clau
 
 let providers = [];
 let mode = 'api';
-const ok = (p) => (mode === 'cli' ? p.cliAvailable : p.apiConfigured);
+const ok = (p) => (mode === 'cli' ? p.cliAvailable : mode === 'mixed' ? p.apiConfigured || p.cliAvailable : p.apiConfigured);
 let history = []; // 이전 회의의 질문/결론 (후속 질문에 맥락으로 전달)
 let controller = null;
 let cfgSage = null;
@@ -51,9 +51,9 @@ function renderParticipants() {
     card.innerHTML = `
       <div class="p-head"><span class="dot" style="background:${colorOf(p.id)}"></span>${esc(nameOf(p.id))}<span class="vendor">${sg ? p.label + ' · ' : ''}${p.vendor}</span>
         <label><input type="checkbox" data-id="${p.id}" ${ok(p) ? 'checked' : 'disabled'}> 참가</label></div>
-      <input type="text" data-model="${p.id}" value="${mode === 'cli' ? '' : esc(p.model)}" placeholder="${mode === 'cli' ? '비우면 CLI 기본 모델' : ''}" list="models-${p.id}" ${ok(p) ? '' : 'disabled'} aria-label="${p.label} 모델">
+      <input type="text" data-model="${p.id}" value="${mode === 'api' ? esc(p.model) : ''}" placeholder="${mode === 'cli' ? '비우면 CLI 기본 모델' : mode === 'mixed' ? '비우면 기본 모델' : ''}" list="models-${p.id}" ${ok(p) ? '' : 'disabled'} aria-label="${p.label} 모델">
       <datalist id="models-${p.id}">${p.models.map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
-      ${ok(p) ? '' : `<div class="p-warn">${mode === 'cli' ? `'${p.cliBin}' CLI 설치·로그인이 필요합니다` : `.env 에 ${p.keyEnv} 가 필요합니다`}</div>`}`;
+      ${ok(p) ? '' : `<div class="p-warn">${mode === 'cli' ? `'${p.cliBin}' CLI 설치·로그인이 필요합니다` : mode === 'mixed' ? `.env 의 ${p.keyEnv} 또는 '${p.cliBin}' CLI 가 필요합니다` : `.env 에 ${p.keyEnv} 가 필요합니다`}</div>`}`;
     box.appendChild(card);
   }
   box.querySelectorAll('input[type=checkbox]').forEach((c) => c.addEventListener('change', () => { c.closest('.p-card').classList.toggle('off', !c.checked); renderModerator(); }));
@@ -131,7 +131,13 @@ const pending = {}; // key -> element
 function handle(ev, ctx) {
   const key = (r, who) => `${r}:${who}`;
   switch (ev.type) {
-    case 'start': ctx.labels = Object.fromEntries(ev.participants.map((p) => [p.id, p.label])); break;
+    case 'start':
+      ctx.labels = Object.fromEntries(ev.participants.map((p) => [p.id, p.label]));
+      for (const p of ev.participants) {
+        const small = document.querySelector(`[data-seat="${p.id}"] .seat-name small`);
+        if (small) small.textContent = `${p.label} · ${p.via.toUpperCase()}`;
+      }
+      break;
     case 'round': {
       const el = document.createElement('div');
       el.className = 'round';
@@ -286,7 +292,9 @@ function setMode(m) {
   document.querySelector(`input[name=mode][value=${m}]`).checked = true;
   $('modeHelp').textContent = m === 'cli'
     ? '설치·로그인된 claude / codex / gemini CLI를 호출합니다. API 키가 필요 없습니다.'
-    : '.env 의 API 키로 각 AI를 직접 호출합니다.';
+    : m === 'mixed'
+      ? 'AI마다 자동 선택: .env 에 API 키가 있으면 API, 없으면 CLI를 씁니다.'
+      : '.env 의 API 키로 각 AI를 직접 호출합니다.';
   renderParticipants();
 }
 document.querySelectorAll('input[name=mode]').forEach((r) => r.addEventListener('change', () => setMode(r.value)));
