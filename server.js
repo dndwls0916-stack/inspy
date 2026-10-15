@@ -3,10 +3,13 @@ const fs = require('fs');
 const path = require('path');
 const { loadEnv } = require('./lib/env');
 loadEnv();
-const { PROVIDERS, isConfigured, defaultModel, isMock } = require('./lib/providers');
+const { PROVIDERS, isConfigured, hasApiKey, cliAvailable, defaultModel, isMock } = require('./lib/providers');
 const { runCouncil } = require('./lib/council');
 
 const PORT = Number(process.env.PORT) || 3000;
+// 시작 시 기본 실행 방식: --mode=cli | --mode=api (또는 MODE 환경변수). 화면에서 바꿀 수 있다.
+const argMode = (process.argv.find((a) => a.startsWith('--mode=')) || '').slice(7);
+const DEFAULT_MODE = [argMode, process.env.MODE].find((m) => m === 'api' || m === 'cli') || 'api';
 const PUBLIC = path.join(__dirname, 'public');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
 
@@ -34,12 +37,15 @@ function readBody(req, limit = 1_000_000) {
 function config() {
   return {
     mock: isMock(),
+    defaultMode: DEFAULT_MODE,
     providers: Object.entries(PROVIDERS).map(([id, p]) => ({
       id,
       label: p.label,
       vendor: p.vendor,
       keyEnv: p.keyEnv,
-      configured: isConfigured(id),
+      apiConfigured: hasApiKey(id),
+      cliAvailable: cliAvailable(id),
+      cliBin: p.cli.bin,
       model: defaultModel(id),
       models: p.models,
     })),
@@ -58,12 +64,20 @@ async function handleCouncil(req, res) {
   if (!question) return sendJson(res, 400, { error: '질문을 입력하세요' });
   if (question.length > 8000) return sendJson(res, 400, { error: '질문이 너무 깁니다 (8000자 이하)' });
 
+  const mode = body.mode === 'cli' ? 'cli' : 'api';
   const participants = (Array.isArray(body.participants) ? body.participants : [])
     .filter((p, i, a) => PROVIDERS[p?.id] && a.findIndex((q) => q.id === p.id) === i)
-    .map((p) => ({ id: p.id, model: String(p.model || '').trim() || defaultModel(p.id) }));
+    .map((p) => {
+      const typed = String(p.model || '').trim().slice(0, 100);
+      // CLI 모드에서 모델을 비우면 CLI 자체 기본 모델을 쓴다.
+      return { id: p.id, model: mode === 'cli' ? typed : typed || defaultModel(p.id) };
+    });
   if (!participants.length) return sendJson(res, 400, { error: '참가할 AI를 한 명 이상 선택하세요' });
-  const missing = participants.filter((p) => !isConfigured(p.id)).map((p) => PROVIDERS[p.id].keyEnv);
-  if (missing.length) return sendJson(res, 400, { error: `.env 에 키가 없습니다: ${missing.join(', ')}` });
+  const missing = participants.filter((p) => !isConfigured(p.id, mode));
+  if (missing.length) {
+    const what = mode === 'cli' ? missing.map((p) => `${PROVIDERS[p.id].cli.bin} CLI`) : missing.map((p) => PROVIDERS[p.id].keyEnv);
+    return sendJson(res, 400, { error: mode === 'cli' ? `CLI가 설치되어 있지 않습니다: ${what.join(', ')}` : `.env 에 키가 없습니다: ${what.join(', ')}` });
+  }
 
   const rounds = Math.min(3, Math.max(1, Number(body.rounds) || 2));
   const moderator = participants.some((p) => p.id === body.moderator) ? body.moderator : participants[0].id;
@@ -77,7 +91,7 @@ async function handleCouncil(req, res) {
   const emit = (ev) => !res.writableEnded && res.write(`data: ${JSON.stringify(ev)}\n\n`);
 
   try {
-    await runCouncil({ question, participants, rounds, moderator, history, emit, signal: ac.signal });
+    await runCouncil({ question, participants, rounds, moderator, history, mode, emit, signal: ac.signal });
   } catch (err) {
     emit({ type: 'error', error: String(err.message || err) });
   }
@@ -111,8 +125,11 @@ const server = http.createServer(async (req, res) => {
 if (require.main === module) {
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`AI 회의실: http://localhost:${PORT}${isMock() ? '  (데모 모드: 실제 AI 호출 없음)' : ''}`);
-    const ready = config().providers.filter((p) => p.configured).map((p) => p.label);
-    console.log(ready.length ? `사용 가능: ${ready.join(', ')}` : '.env 에 API 키가 없습니다. .env.example 을 참고하세요 (또는 npm run demo).');
+    const ps = config().providers;
+    const list = (k) => ps.filter((p) => p[k]).map((p) => p.label).join(', ') || '없음';
+    console.log(`기본 실행 방식: ${DEFAULT_MODE.toUpperCase()}  (화면에서 변경 가능)`);
+    console.log(`  API 사용 가능: ${list('apiConfigured')}`);
+    console.log(`  CLI 사용 가능: ${list('cliAvailable')}`);
   });
 }
 
