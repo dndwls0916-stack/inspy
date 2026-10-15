@@ -13,7 +13,7 @@ try {
   if (m.isSea()) sea = m;
 } catch {}
 const { runCouncil } = require('./lib/council');
-const { PERSONAS } = require('./lib/personas');
+const { PERSONAS, SAGE } = require('./lib/personas');
 
 const PORT = Number(process.env.PORT) || 3000;
 // 시작 시 기본 실행 방식: --mode=cli | --mode=api (또는 MODE 환경변수). 화면에서 바꿀 수 있다.
@@ -73,6 +73,7 @@ function config() {
   return {
     mock: isMock(),
     defaultMode: explicitMode || autoMode(),
+    sage: SAGE,
     providers: Object.entries(PROVIDERS).map(([id, p]) => ({
       id,
       label: p.label,
