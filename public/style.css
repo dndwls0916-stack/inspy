@@ -20,7 +20,8 @@ body { background: var(--bg); color: var(--text); font: 15px/1.6 system-ui, -app
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .p-head .vendor { color: var(--muted); font-weight: 400; font-size: 12px; }
 .p-head label { margin-left: auto; display: flex; align-items: center; gap: 6px; font-weight: 400; font-size: 13px; cursor: pointer; }
-.p-card input[type=text] { width: 100%; margin-top: 8px; }
+.p-card input[type=text], .p-card select { width: 100%; margin-top: 8px; }
+.p-card input[hidden] { display: none; }
 .p-warn { color: #b45309; font-size: 12px; margin-top: 6px; }
 .field { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 select, input[type=text], textarea { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
@@ -152,3 +153,5 @@ body.sg button:not(.ghost):not(#stop) { background: var(--accent); }
   .seat.sage { display: none; }
   .seat-title { display: none; }
 }
+
+.msg-head small.model { margin-left: auto; font-family: ui-monospace, Consolas, monospace; font-size: 11px; opacity: .8; }

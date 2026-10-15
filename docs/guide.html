@@ -72,7 +72,7 @@
 <pre>npm install -g @anthropic-ai/claude-code     (Claude → 유비)
 npm install -g @openai/codex                (GPT → 관우)
 npm install -g @google/gemini-cli           (Gemini → 장비, 아래 '중요' 참고)</pre>
-      <p>(Claude Code는 공식 설치 프로그램으로도 설치할 수 있습니다. 각 공식 문서의 안내가 바뀌었다면 그쪽을 따르세요.)</p></li>
+      <p>(Claude 모델 별칭은 <code>sonnet</code>, <code>opus</code>, <code>haiku</code>를 쓸 수 있습니다(실제 동작 확인). Claude Code는 공식 설치 프로그램으로도 설치할 수 있습니다. 각 공식 문서의 안내가 바뀌었다면 그쪽을 따르세요.)</p></li>
     <li><b>한 번씩 직접 실행해 로그인</b> — 명령 프롬프트에서 <code>claude</code>, <code>codex</code>, <code>gemini</code>를 각각 입력하면 브라우저 로그인 안내가 나옵니다. 로그인(구독 계정)을 마치고, 처음 나오는 "이 폴더를 신뢰하시겠습니까?" 같은 질문까지 <b>대화형으로 끝낸 뒤</b> 종료하세요. 이 과정을 건너뛰면 회의 중에 CLI가 질문에서 멈춰 시간 초과가 날 수 있습니다.</li>
     <li><b>설치 확인</b> — <code>claude --version</code>, <code>codex --version</code>, <code>gemini --version</code>이 버전을 출력하면 됩니다.</li>
     <li><b>이 프로그램 실행</b> — exe를 (새로) 더블클릭합니다. 콘솔에 <code>CLI 사용 가능: GPT, Gemini, Claude</code>처럼 인식한 AI가 표시되어야 합니다. 키가 하나도 없으면 <b>자동으로 CLI 방식</b>으로 시작합니다. (설치한 뒤에는 PATH가 반영되도록 반드시 새로 실행하세요.)</li>
@@ -127,7 +127,7 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx</pre></li>
     <tr><th>메뉴</th><th>설명</th></tr>
     <tr><td><b>삼국지 모드</b></td><td>켜면 유비(Claude)·관우(GPT)·장비(Gemini)와 군의 장면, 제갈량의 한마디가 나옵니다. 끄면 일반 회의 화면입니다. 선택은 기억됩니다.</td></tr>
     <tr><td><b>실행 방식</b></td><td>API 키 / CLI 로그인 선택.</td></tr>
-    <tr><td><b>참가자</b></td><td>회의에 참여할 AI를 체크합니다. 키(또는 CLI)가 없는 AI는 비활성화됩니다. <b>모델 칸</b>은 <b>비워 두는 것이 가장 안전합니다.</b> API 키가 있으면 칸을 클릭할 때 서비스가 알려 주는 <b>현재 쓸 수 있는 모델 목록</b>이 나오고, 비우면 최신 주력 모델을 자동으로 고릅니다. CLI는 비우면 CLI 기본 모델을 씁니다. (모델 이름은 서비스가 자주 바꿉니다.)</td></tr>
+    <tr><td><b>참가자</b></td><td>회의에 참여할 AI를 체크합니다. 키(또는 CLI)가 없는 AI는 비활성화됩니다. <b>모델</b>은 카드의 <b>드롭다운</b>에서 고릅니다. 맨 위의 <b>"자동"</b>이 가장 안전합니다(API는 서비스의 최신 주력 모델, CLI는 CLI 기본 모델). 목록에 없는 모델은 <b>"직접 입력…"</b>을 고르고 이름을 적으세요. API 키가 있으면 목록이 <b>서비스가 알려 주는 현재 사용 가능 모델</b>로 채워집니다. CLI 방식의 목록은 <b>예시</b>라서 계정에 따라 안 될 수 있습니다. 그때는 "자동"을 쓰세요.</td></tr>
     <tr><td><b>토론 라운드</b></td><td><b>1</b> 각자 의견만 · <b>2</b> 의견 + 서로 반박(기본) · <b>3</b> 심화 토론. 라운드가 많을수록 깊지만 느리고 비쌉니다.</td></tr>
     <tr><td><b>결론 정리 담당</b></td><td>최종 결론을 정리하는 AI. 삼국지 모드에서는 기본이 유비(Claude)입니다.</td></tr>
     <tr><td><b>새 회의 시작</b></td><td>화면과 이어지던 맥락을 지웁니다. 같은 화면에서 이어 질문하면 앞선 결론이 맥락으로 전달됩니다.</td></tr>
@@ -151,9 +151,11 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx</pre></li>
   <details><summary>"포트 3000이 이미 사용 중입니다"</summary><p>프로그램이 이미 켜져 있거나 다른 프로그램이 3000번을 씁니다. 이미 켠 창을 닫고 다시 실행하거나, <code>.env</code>의 <code>PORT=3000</code>을 <code>PORT=3001</code>처럼 바꾸세요(이 경우 주소도 <code>localhost:3001</code>).</p></details>
   <details><summary>"사용 가능한 AI가 없습니다"</summary><p>키도 CLI도 인식되지 않은 상태입니다. <code>.env</code>에 키를 넣고 <b>프로그램을 껐다 켰는지</b> 확인하세요. 키 앞뒤에 공백이나 따옴표가 없어야 합니다.</p></details>
   <details><summary>카드에 "HTTP 401" / "invalid api key"</summary><p>키가 틀렸거나 삭제됐습니다. 새로 발급받아 <code>.env</code>를 고치고 재실행하세요.</p></details>
-  <details><summary>"The 'gpt-5' model is not supported when using Codex with a ChatGPT account" (Codex CLI)</summary><p>CLI 방식에서는 <b>모델 칸을 완전히 비우세요.</b> 비우면 Codex가 ChatGPT 계정에서 쓸 수 있는 기본 모델을 직접 고릅니다. 이름을 직접 적으면 계정이 지원하지 않는 모델일 수 있습니다.</p></details>
-  <details><summary>"This model models/gemini-… is no longer available to new users" (Gemini API)</summary><p>그 모델은 새 계정에서 더 이상 쓸 수 없습니다. 참가자 카드의 모델 칸을 클릭하면 <b>지금 계정에서 쓸 수 있는 모델 목록</b>이 나오니 거기서 고르거나, 칸을 비우세요(비우면 목록의 최신 주력 모델을 자동으로 고릅니다). 오류 메시지가 추천한 모델 이름을 그대로 입력해도 됩니다.</p></details>
+  <details><summary>"The 'gpt-5' model is not supported when using Codex with a ChatGPT account" (Codex CLI)</summary><p>CLI 방식에서는 <b>모델 드롭다운을 "자동"으로 두세요.</b> 자동이면 Codex가 ChatGPT 계정에서 쓸 수 있는 기본 모델을 직접 고릅니다. 이름을 직접 적으면 계정이 지원하지 않는 모델일 수 있습니다.</p></details>
+  <details><summary>"This model models/gemini-2.5-flash is no longer available to new users … use models/gemini-3.8-flash" (Gemini API)</summary><p><b>자동 처리됩니다.</b> 서비스가 대체 모델을 알려 주면 프로그램이 그 모델로 바꿔 다시 시도하고, 답변 카드에 <b>실제로 쓴 모델</b>(예: <code>gemini-3.8-flash ← gemini-2.5-flash 대체</code>)이 표시됩니다. 그래도 같은 오류가 반복되면 실행파일 옆 <code>.env</code>에서 <code>GEMINI_MODEL=</code> 줄을 <b>지우세요</b>(이전 버전이 만든 <code>.env</code>에는 모델이 고정되어 있을 수 있습니다). 아래는 이전 안내입니다.</p></details>
+  <details><summary>(참고) "This model models/gemini-… is no longer available to new users" (Gemini API)</summary><p>그 모델은 새 계정에서 더 이상 쓸 수 없습니다. 참가자 카드의 모델 드롭다운에서 <b>지금 계정에서 쓸 수 있는 모델</b>을 고르거나 <b>"자동"</b>을 고르세요(자동은 목록의 최신 주력 모델을 고릅니다). 오류 메시지가 추천한 모델 이름을 그대로 입력해도 됩니다.</p></details>
   <details><summary>카드에 "HTTP 404" / "model not found"</summary><p>그 계정에서 쓸 수 없는 모델 이름입니다. 왼쪽 참가자 카드의 <b>모델 칸</b>을 계정에서 쓸 수 있는 모델로 바꾸세요. (모델 이름은 서비스가 자주 바꿉니다.)</p></details>
+  <details><summary>Gemini: "HTTP 429 … Quota exceeded … generate_content_free_tier_requests, limit: 0, model: …"</summary><p><b>"limit: 0"</b>은 그 모델에는 <b>무료 사용량이 아예 없다</b>는 뜻입니다(요청이 많아서가 아닙니다). 신형이나 pro 계열 모델에서 흔합니다. 모델 드롭다운이 <b>"자동"</b>이면 프로그램이 무료로 쓸 가능성이 높은 모델(<code>flash</code>, <code>flash-lite</code>)을 먼저 시도하고, 한도 0이나 사용 불가 오류가 나면 <b>다음 후보로 자동 전환</b>합니다. 각 답변 카드 오른쪽 위에 <b>실제로 쓴 모델 이름</b>이 표시됩니다. 직접 고른 모델에서 이 오류가 나면 자동 전환하지 않으니 다른 모델을 고르거나 <b>"자동"</b>으로 바꾸세요. 신형 모델을 꼭 쓰려면 Google AI Studio에서 결제(유료 요금제)를 연결해야 합니다.</p></details>
   <details><summary>카드에 "HTTP 429" / quota</summary><p>사용 한도나 크레딧이 소진됐거나 요청이 너무 빠릅니다. 결제·크레딧을 확인하고 잠시 뒤 다시 시도하세요.</p></details>
   <details><summary>"'xxx' 명령을 찾을 수 없습니다" / 참가자 카드에 "CLI 설치·로그인이 필요합니다"</summary><p>해당 CLI가 설치되지 않았거나 PATH에 없습니다. ① 명령 프롬프트에서 <code>claude --version</code>(또는 codex/gemini)이 되는지 확인 ② 설치 직후라면 <b>이 프로그램을 껐다가 새로 실행</b> ③ 그래도 안 되면 <code>.env</code>에 <code>CLAUDE_BIN</code> / <code>CODEX_BIN</code> / <code>GEMINI_BIN</code>으로 전체 경로를 적고 재실행하세요.</p></details>
   <details><summary>CLI 카드에 "종료 코드 1 …" 또는 시간 초과</summary><p>카드에 표시된 마지막 메시지를 먼저 읽어 보세요. 대부분 ① 로그인이 안 됐거나 만료됨 → 해당 CLI를 직접 실행해 다시 로그인 ② 처음 실행 시 나오는 질문(폴더 신뢰, 약관 등)에서 멈춤 → 대화형으로 한 번 끝내기 ③ 구독 사용량 한도 소진 → 시간이 지난 뒤 재시도 ④ 인터넷 연결입니다. 터미널에서 <code>claude -p "안녕"</code>이 직접 되는지 확인하면 원인을 가를 수 있습니다.</p></details>

@@ -48,10 +48,35 @@ function startModel(p) {
   const live = liveModels[p.id];
   return live && !p.modelPinned && !live.ids.includes(p.model) && live.pick ? live.pick : p.model;
 }
-// 추천 목록: CLI 는 비워 두는 것이 가장 안전하므로 제안하지 않는다.
+// 선택지: API 는 서비스에서 가져온 목록(없으면 정적 목록), CLI 는 예시 목록, 혼합은 둘의 합집합
 function modelChoices(p) {
-  if (mode === 'cli') return [];
-  return liveModels[p.id]?.ids || (mode === 'mixed' ? [] : p.models);
+  const live = liveModels[p.id]?.ids || [];
+  const list = mode === 'cli' ? p.cliModels : mode === 'mixed' ? [...live, ...p.cliModels] : live.length ? live : p.models;
+  return [...new Set(list)];
+}
+const CUSTOM = '__custom';
+function modelSelectHtml(p) {
+  const choices = modelChoices(p);
+  const want = mode === 'api' ? startModel(p) : '';
+  const autoLabel = mode === 'cli' ? '자동 (CLI 기본 모델)' : mode === 'mixed' ? '자동 (기본 모델)' : `자동 (${startModel(p)})`;
+  const opts = [`<option value="">${esc(autoLabel)}</option>`, ...choices.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`), `<option value="${CUSTOM}">직접 입력…</option>`];
+  return `<select data-modelsel="${p.id}" ${ok(p) ? '' : 'disabled'} aria-label="${esc(p.label)} 모델">${opts.join('')}</select>
+      <input type="text" data-model="${p.id}" hidden placeholder="모델 이름 직접 입력" aria-label="${esc(p.label)} 모델 직접 입력">`;
+}
+// 선택한 모델 값 ('' = 자동)
+function modelValue(id) {
+  const sel = document.querySelector(`select[data-modelsel="${id}"]`);
+  if (!sel) return '';
+  return sel.value === CUSTOM ? document.querySelector(`input[data-model="${id}"]`).value.trim() : sel.value;
+}
+function wireModelSelects() {
+  document.querySelectorAll('select[data-modelsel]').forEach((sel) => {
+    const input = document.querySelector(`input[data-model="${sel.dataset.modelsel}"]`);
+    sel.addEventListener('change', () => {
+      input.hidden = sel.value !== CUSTOM;
+      if (!input.hidden) input.focus();
+    });
+  });
 }
 
 function renderParticipants() {
@@ -63,12 +88,12 @@ function renderParticipants() {
     card.innerHTML = `
       <div class="p-head"><span class="dot" style="background:${colorOf(p.id)}"></span>${esc(nameOf(p.id))}<span class="vendor">${sg ? p.label + ' · ' : ''}${p.vendor}</span>
         <label><input type="checkbox" data-id="${p.id}" ${ok(p) ? 'checked' : 'disabled'}> 참가</label></div>
-      <input type="text" data-model="${p.id}" value="${mode === 'api' ? esc(startModel(p)) : ''}" placeholder="${mode === 'cli' ? '비우면 CLI 기본 모델' : mode === 'mixed' ? '비우면 기본 모델' : ''}" list="models-${p.id}" ${ok(p) ? '' : 'disabled'} aria-label="${p.label} 모델">
-      <datalist id="models-${p.id}">${modelChoices(p).map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
+      ${modelSelectHtml(p)}
       ${ok(p) ? '' : `<div class="p-warn">${mode === 'cli' ? `'${p.cliBin}' CLI 설치·로그인이 필요합니다` : mode === 'mixed' ? `.env 의 ${p.keyEnv} 또는 '${p.cliBin}' CLI 가 필요합니다` : `.env 에 ${p.keyEnv} 가 필요합니다`}</div>`}`;
     box.appendChild(card);
   }
   box.querySelectorAll('input[type=checkbox]').forEach((c) => c.addEventListener('change', () => { c.closest('.p-card').classList.toggle('off', !c.checked); renderModerator(); }));
+  wireModelSelects();
   renderModerator();
 }
 const selected = () => providers.filter((p) => document.querySelector(`input[data-id="${p.id}"]`)?.checked);
@@ -174,7 +199,7 @@ function handle(ev, ctx) {
       caption(ev.who, ev.text);
       const el = pending[key(ev.round, ev.who)] || add('', ev.who);
       el.className = 'msg ' + ev.who;
-      el.innerHTML = head(ev.who, ev.label) + `<div class="msg-body">${md(ev.text)}</div>`;
+      el.innerHTML = head(ev.who, ev.label, `<small class="model" title="${ev.requested && ev.requested !== ev.model ? `선택한 ${esc(ev.requested)} 는 사용할 수 없어 대체했습니다` : ''}">${esc(ev.model || 'CLI 기본')}${ev.requested && ev.requested !== ev.model ? ` ← ${esc(ev.requested)} 대체` : ''}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`;
       break;
     }
     case 'turn_error': {
@@ -226,7 +251,7 @@ async function runMeeting(question) {
       signal: controller.signal,
       body: JSON.stringify({
         question,
-        participants: chosen.map((p) => ({ id: p.id, model: document.querySelector(`input[data-model="${p.id}"]`).value })),
+        participants: chosen.map((p) => ({ id: p.id, model: modelValue(p.id) })),
         mode,
         persona: sg,
         rounds: Number($('rounds').value),
@@ -303,9 +328,9 @@ function setMode(m) {
   mode = m;
   document.querySelector(`input[name=mode][value=${m}]`).checked = true;
   $('modeHelp').textContent = m === 'cli'
-    ? '설치·로그인된 claude / codex / gemini CLI를 호출합니다. API 키가 필요 없습니다.'
+    ? '설치·로그인된 claude / codex / gemini CLI를 호출합니다. API 키가 필요 없습니다. 모델은 "자동"이 가장 안전하고, 목록은 예시라 계정에 따라 안 될 수 있습니다.'
     : m === 'mixed'
-      ? 'AI마다 자동 선택: .env 에 API 키가 있으면 API, 없으면 CLI를 씁니다.'
+      ? 'AI마다 자동 선택: .env 에 API 키가 있으면 API, 없으면 CLI를 씁니다. CLI 쪽 모델 목록은 예시입니다(안 되면 "자동").'
       : '.env 의 API 키로 각 AI를 직접 호출합니다.';
   renderParticipants();
 }
