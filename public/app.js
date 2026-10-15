@@ -7,6 +7,7 @@ let mode = 'api';
 const ok = (p) => (mode === 'cli' ? p.cliAvailable : p.apiConfigured);
 let history = []; // 이전 회의의 질문/결론 (후속 질문에 맥락으로 전달)
 let controller = null;
+let cfgSage = null;
 let sg = true; // 삼국지 모드
 try { sg = localStorage.getItem('sg') !== '0'; } catch {}
 const byId = (id) => providers.find((p) => p.id === id);
@@ -86,24 +87,42 @@ const head = (id, label, extra = '') => {
   return `<div class="msg-head">${mark}${who} ${extra}</div>`;
 };
 
-// --- 군의 자리(무대) ---
+// --- 군의 자리(원탁 + 병풍 장면) ---
 const STATE = { idle: '대기', thinking: '숙고 중…', speaking: '결단 중…', done: '발언 완료', error: '낙마(오류)' };
+const POS = { claude: 'top', gpt: 'left', gemini: 'right' };
+let agenda = '의제를 올려 주세요';
+const seatHtml = (id, p, extra = '') => `<div class="seat idle ${extra}" data-seat="${id}" style="--c:${p.color}">
+  <div class="seal">${p.hanja}</div>
+  <div class="seat-name">${esc(p.name)}${byId(id) ? ` <small>${esc(byId(id).label)}</small>` : ''}</div>
+  <div class="seat-title">${esc(p.title)}</div><div class="seat-state">${STATE.idle}</div></div>`;
 function renderStage(ids) {
   const stage = $('stage');
   stage.hidden = !sg || !ids.length;
-  stage.innerHTML = ids.map((id) => {
-    const p = byId(id).persona;
-    return `<div class="seat" data-seat="${id}" style="--c:${p.color}">
-      <div class="seal">${p.hanja}</div>
-      <div class="seat-info"><div class="seat-name">${esc(p.name)} <small>${esc(byId(id).label)}</small></div>
-      <div class="seat-title">${esc(p.title)}</div><div class="seat-state">${STATE.idle}</div></div></div>`;
-  }).join('');
+  if (stage.hidden) return;
+  stage.innerHTML = `<div class="scene">
+    <div class="screen" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div class="table" aria-hidden="true"><div class="agenda"><small>議 · 의제</small><span id="agenda">${esc(agenda)}</span></div></div>
+    ${ids.map((id) => seatHtml(id, byId(id).persona, 'pos-' + (POS[id] || 'left'))).join('')}
+    ${cfgSage ? seatHtml('sage', cfgSage, 'sage') : ''}
+    <div class="caption" id="caption" hidden></div></div>`;
 }
 function seat(id, state) {
   const el = document.querySelector(`[data-seat="${id}"]`);
   if (!el) return;
-  el.className = 'seat ' + state;
-  el.querySelector('.seat-state').textContent = STATE[state];
+  el.classList.remove('idle', 'thinking', 'speaking', 'done', 'error');
+  el.classList.add(state);
+  el.querySelector('.seat-state').textContent = id === 'sage' && state === 'thinking' ? '책략 구상 중…' : id === 'sage' && state === 'done' ? '한마디 올림' : STATE[state];
+}
+// 자막: 지금 발언의 첫 문장
+function caption(id, text) {
+  const el = $('caption');
+  if (!el) return;
+  const p = id === 'sage' ? cfgSage : byId(id)?.persona;
+  const plain = text.replace(/[#*`>\-]/g, ' ').replace(/\s+/g, ' ').trim();
+  const short = plain.length > 90 ? plain.slice(0, 90) + '…' : plain;
+  el.hidden = !short;
+  el.style.setProperty('--c', p?.color || 'var(--accent)');
+  el.innerHTML = `<b>${esc(p?.name || '')}</b> ${esc(short)}`;
 }
 const ORDER = ['claude', 'gpt', 'gemini']; // 유비(맏형) · 관우 · 장비
 const refreshStage = () => renderStage(selected().map((p) => p.id).sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)));
@@ -117,11 +136,16 @@ function handle(ev, ctx) {
       const el = document.createElement('div');
       el.className = 'round';
       el.textContent = sg ? `── 제${ev.round}차 군의(軍議) · 총 ${ev.total}차 ──` : `── ${ev.round}라운드 / 총 ${ev.total}라운드 ──`;
-      if (sg && ev.round > 1) document.querySelectorAll('.seat').forEach((e) => seat(e.dataset.seat, 'idle'));
+      if (sg && ev.round > 1) document.querySelectorAll('.seat:not(.sage)').forEach((e) => seat(e.dataset.seat, 'idle'));
       feed.appendChild(el);
       break;
     }
     case 'thinking': {
+      if (ev.who === 'sage') {
+        seat('sage', 'thinking');
+        pending['sage:sage'] = add(`<div class="msg-head"><span class="mini-seal" style="--c:${cfgSage.color}">${cfgSage.hanja}</span>${esc(cfgSage.name)} <small>책략 구상 중</small></div>`, 'pending sage-card');
+        break;
+      }
       const label = ctx.labels[ev.who];
       seat(ev.who, ev.round === 'final' ? 'speaking' : 'thinking');
       pending[key(ev.round, ev.who)] = add(head(ev.who, label, ev.round === 'final' ? '<small>결론 정리 중</small>' : '<small>생각 중</small>'), 'pending ' + ev.who);
@@ -129,6 +153,7 @@ function handle(ev, ctx) {
     }
     case 'turn': {
       seat(ev.who, 'done');
+      caption(ev.who, ev.text);
       const el = pending[key(ev.round, ev.who)] || add('', ev.who);
       el.className = 'msg ' + ev.who;
       el.innerHTML = head(ev.who, ev.label) + `<div class="msg-body">${md(ev.text)}</div>`;
@@ -148,6 +173,19 @@ function handle(ev, ctx) {
       ctx.conclusion = ev.text;
       break;
     }
+    case 'sage': {
+      seat('sage', 'done');
+      caption('sage', ev.text.replace(/\*\*[^*]+\*\*/g, ''));
+      const el = pending['sage:sage'] || add('', '');
+      el.className = 'msg sage-card';
+      el.innerHTML = `<div class="msg-head"><span class="mini-seal" style="--c:${cfgSage.color}">${cfgSage.hanja}</span>${esc(cfgSage.name)}의 한마디 <small>${esc(ev.label)}가 대신 올림</small></div><div class="msg-body">${md(ev.text)}</div>`;
+      break;
+    }
+    case 'sage_error': {
+      seat('sage', 'error');
+      pending['sage:sage']?.remove();
+      break;
+    }
     case 'error': add(`<div>${esc(ev.error)}</div>`, 'err'); break;
   }
   feed.scrollTop = feed.scrollHeight;
@@ -161,6 +199,7 @@ async function runMeeting(question) {
   setBusy(true);
   controller = new AbortController();
   const ctx = { labels: {}, conclusion: null };
+  agenda = question.length > 70 ? question.slice(0, 70) + '…' : question;
   refreshStage();
   try {
     const res = await fetch('/api/council', {
@@ -223,6 +262,8 @@ stopBtn.addEventListener('click', () => controller?.abort());
 $('reset').addEventListener('click', () => {
   controller?.abort();
   history = [];
+  agenda = '의제를 올려 주세요';
+  refreshStage();
   feed.innerHTML = '<div class="empty">새 회의를 시작합니다. 질문을 입력하세요.</div>';
 });
 
@@ -253,6 +294,7 @@ document.querySelectorAll('input[name=mode]').forEach((r) => r.addEventListener(
 fetch('/api/config').then((r) => r.json()).then((cfg) => {
   providers = cfg.providers;
   $('demo').hidden = !cfg.mock;
+  cfgSage = cfg.sage;
   setMode(cfg.defaultMode);
   applyTheme();
   if (!providers.some((p) => p.apiConfigured || p.cliAvailable)) {

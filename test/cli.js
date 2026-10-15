@@ -18,6 +18,28 @@ delete process.env.MOCK;
 for (const k of ['OPENAI_API_KEY', 'GEMINI_API_KEY', 'ANTHROPIC_API_KEY']) delete process.env[k];
 
 const { server } = require('../server');
+const { buildSpawn, pickWinBin, PROVIDERS } = require('../lib/providers');
+
+// --- Windows 실행 계획(순수 함수) 검증: 실제 Windows 가 없어도 인자 처리 규칙을 확인한다 ---
+{
+  const lin = buildSpawn('/usr/bin/claude', ['-p', '--model', 'a b'], 'linux');
+  assert.deepEqual(lin, { cmd: '/usr/bin/claude', args: ['-p', '--model', 'a b'], shell: false }, '리눅스는 셸 없이 그대로');
+  const exe = buildSpawn('C:\\Users\\me\\claude.exe', ['-p'], 'win32');
+  assert.equal(exe.shell, false, '.exe 는 셸 없이');
+  const cmd = buildSpawn('C:\\Users\\내 이름\\npm\\gemini.cmd', ['-m', 'gemini-2.5-pro', '-p', 'Answer the request. Use Korean.'], 'win32');
+  assert.equal(cmd.shell, true, '.cmd 는 셸 필요');
+  assert.equal(cmd.cmd, '"C:\\Users\\내 이름\\npm\\gemini.cmd" -m gemini-2.5-pro -p "Answer the request. Use Korean."', '공백/한글 경로와 공백 있는 인자만 따옴표');
+  assert.deepEqual(cmd.args, [], '셸 명령은 문자열 하나');
+  for (const bad of ['x & calc', 'x"y', 'a|b', 'a;b', '$(id)', 'a`b', 'a%PATH%', 'a>b']) {
+    assert.throws(() => buildSpawn('g.cmd', ['-m', bad], 'win32'), /사용할 수 없는 문자/, `차단: ${bad}`);
+  }
+  assert.equal(pickWinBin(['C:\\n\\gemini', 'C:\\n\\gemini.cmd']), 'C:\\n\\gemini.cmd', '확장자 없는 sh 스크립트 제외');
+  assert.equal(pickWinBin(['C:\\n\\claude.cmd', 'C:\\b\\claude.exe']), 'C:\\b\\claude.exe', '.exe 우선');
+  assert.equal(pickWinBin(['C:\\n\\gemini']), null);
+  // 실제 고정 인자는 모두 통과해야 한다
+  for (const id of Object.keys(PROVIDERS)) buildSpawn('x.cmd', PROVIDERS[id].cli.args('some-model_1.5:pro'), 'win32');
+  console.log('OK: Windows 실행 계획 규칙');
+}
 
 async function sse(res) {
   const events = [];

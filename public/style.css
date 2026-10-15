@@ -90,16 +90,65 @@ body.sg button:not(.ghost):not(#stop) { background: var(--accent); }
 
 .mini-seal { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 4px; background: var(--c); color: #fff; font-size: 13px; line-height: 1; transform: rotate(-4deg); }
 
-.stage { display: flex; gap: 12px; padding: 14px 24px 0; flex-wrap: wrap; }
+.stage { padding: 14px 24px 0; }
 .stage[hidden] { display: none; }
-.seat { flex: 1 1 200px; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--line); border-bottom: 3px solid var(--c); border-radius: 10px; background: var(--panel); transition: transform .2s, box-shadow .2s, opacity .2s; }
-.seal { flex: none; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 8px; background: var(--c); color: #fff; font-size: 30px; line-height: 1; box-shadow: inset 0 0 0 2px rgba(255,255,255,.35), 0 2px 4px rgba(0,0,0,.25); transform: rotate(-3deg); }
-.seat-name { font-weight: 700; font-size: 17px; }
-.seat-name small { font-weight: 400; color: var(--muted); font-size: 11px; font-family: system-ui, sans-serif; margin-left: 4px; }
-.seat-title { font-size: 12px; color: var(--muted); }
-.seat-state { font-size: 12px; margin-top: 2px; color: var(--muted); font-family: system-ui, sans-serif; }
-.seat.thinking, .seat.speaking { transform: translateY(-3px); box-shadow: 0 6px 16px rgba(0,0,0,.18), 0 0 0 2px var(--c); }
-.seat.thinking .seat-state, .seat.speaking .seat-state { color: var(--c); font-weight: 600; animation: blink 1s infinite; }
-.seat.done .seat-state { color: #2f7d4f; }
-.seat.error { opacity: .7; } .seat.error .seat-state { color: #dc2626; }
-@media (max-width: 760px) { .stage { padding: 10px 12px 0; } .seat { flex-basis: 100%; } }
+.scene { position: relative; height: 318px; border-radius: 14px; overflow: hidden; border: 3px solid #5a3d22; box-shadow: 0 6px 18px rgba(0,0,0,.25), inset 0 0 0 2px #c9a24d; background: #d9c28d; }
+/* 병풍: 산수화 한 폭을 네 폭으로 나눠 보여준다 */
+.screen { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(4, 1fr); background: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 280' preserveAspectRatio='none'><defs><linearGradient id='g' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='%23f1e2b8'/><stop offset='1' stop-color='%23d9c28d'/></linearGradient></defs><rect width='800' height='280' fill='url(%23g)'/><circle cx='610' cy='70' r='34' fill='%23b23a2a' opacity='.85'/><path d='M0 190 L90 120 L150 165 L240 85 L330 175 L400 140 L480 190 L560 110 L650 175 L720 130 L800 180 L800 280 L0 280Z' fill='%23584a38' opacity='.28'/><path d='M0 225 L70 170 L140 215 L230 150 L310 220 L420 165 L510 225 L610 170 L700 225 L800 190 L800 280 L0 280Z' fill='%23463a2c' opacity='.38'/><g fill='%23352b20' opacity='.55'><path d='M60 280 L60 200 M30 225 L60 205 L90 225 M38 245 L60 230 L82 245'/><path d='M730 280 L730 195 M700 222 L730 200 L760 222 M708 245 L730 228 L752 245'/></g><g stroke='%23352b20' stroke-width='3' opacity='.5' fill='none'><path d='M60 280 L60 200'/><path d='M730 280 L730 195'/></g></svg>") center/100% 100% no-repeat; }
+.screen i { border-left: 2px solid rgba(90,61,34,.55); box-shadow: inset 8px 0 14px rgba(90,61,34,.18), inset -6px 0 10px rgba(255,255,255,.12); }
+.screen i:first-child { border-left: 0; }
+.screen::before, .screen::after { content: ""; position: absolute; left: 0; right: 0; height: 8px; background: linear-gradient(#6b4a2a, #4a3320); z-index: 1; }
+.screen::before { top: 0; } .screen::after { bottom: 0; }
+@media (prefers-color-scheme: dark) { .screen { filter: brightness(.5) saturate(.8); } }
+
+/* 원탁 */
+.table { position: absolute; left: 50%; top: 128px; width: 58%; max-width: 560px; height: 118px; transform: translateX(-50%); border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 35%, #a9743d, #7b4e27 62%, #5a3a1d); border: 3px solid #3e2813; box-shadow: 0 14px 18px -6px rgba(0,0,0,.5), inset 0 0 0 5px rgba(255,220,150,.18); display: grid; place-items: center; }
+.agenda { max-width: 62%; text-align: center; background: #f4e6bd; color: #2a2016; border: 1px solid #b8942f; border-radius: 3px; padding: 4px 12px 5px; box-shadow: 0 2px 5px rgba(0,0,0,.35); transform: rotate(-1.5deg); }
+.agenda small { display: block; font-size: 10px; letter-spacing: .15em; color: #8a2a1c; }
+.agenda span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; line-height: 1.35; }
+
+/* 인물 */
+.seat { position: absolute; width: 112px; text-align: center; transition: transform .25s, filter .25s, opacity .25s; z-index: 2; }
+.seat.pos-top { left: 50%; top: 16px; transform: translateX(-50%); }
+.seat.pos-left { left: 11%; top: 118px; }
+.seat.pos-right { right: 11%; top: 118px; }
+.seat.sage { right: 2.5%; top: 14px; width: 86px; }
+.seat .seal { margin: 0 auto 3px; display: grid; place-items: center; width: 56px; height: 56px; border-radius: 10px; background: var(--c); color: #fff; font-size: 32px; line-height: 1; box-shadow: inset 0 0 0 2px rgba(255,255,255,.4), 0 3px 6px rgba(0,0,0,.4); transform: rotate(-3deg); }
+.seat.sage .seal { width: 44px; height: 44px; font-size: 25px; border-radius: 50%; }
+.seat-name { font-weight: 700; font-size: 15px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+.seat-name small { font-weight: 400; font-size: 10px; font-family: system-ui, sans-serif; opacity: .85; }
+.seat-title { display: inline-block; font-size: 10px; color: #f6ecd2; background: rgba(30,22,14,.55); border-radius: 8px; padding: 0 7px; }
+.seat-state { display: inline-block; margin-top: 2px; padding: 0 8px; border-radius: 9px; font-size: 11px; font-family: system-ui, sans-serif; background: rgba(0,0,0,.55); color: #f6ecd2; }
+.seat.idle { filter: saturate(.7); }
+.seat.sage.idle { opacity: .6; }
+.seat.thinking, .seat.speaking { filter: none; z-index: 3; }
+.seat.pos-top.thinking, .seat.pos-top.speaking { transform: translateX(-50%) translateY(-4px) scale(1.08); }
+.seat.thinking:not(.pos-top), .seat.speaking:not(.pos-top) { transform: translateY(-4px) scale(1.08); }
+.seat.thinking .seal, .seat.speaking .seal { box-shadow: 0 0 0 3px #ffe9a8, 0 0 18px 6px var(--c); }
+.seat.thinking .seat-state, .seat.speaking .seat-state { background: var(--c); color: #fff; animation: blink 1s infinite; }
+.seat.done .seat-state { background: #2f7d4f; color: #fff; }
+.seat.error { opacity: .75; } .seat.error .seat-state { background: #b91c1c; color: #fff; }
+
+/* 자막 */
+.caption { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 4; padding: 6px 12px; background: rgba(30,22,14,.82); color: #f6ecd2; border-left: 5px solid var(--c, var(--accent)); border-radius: 6px; font-size: 13px; line-height: 1.45; max-height: 46px; overflow: hidden; }
+.caption b { color: #ffe9a8; margin-right: 6px; }
+.caption[hidden] { display: none; }
+
+/* 제갈량의 한마디 */
+.msg.sage-card { border: 1px solid #6a4c93; border-left: 6px solid #6a4c93; background: linear-gradient(135deg, var(--panel), rgba(106,76,147,.12)); }
+.msg.sage-card .msg-body p { margin: 6px 0; }
+.msg.sage-card .msg-body strong { color: #6a4c93; }
+@media (prefers-color-scheme: dark) { .msg.sage-card .msg-body strong { color: #b79bde; } }
+
+@media (max-width: 760px) {
+  .stage { padding: 10px 12px 0; }
+  .scene { height: 236px; }
+  .caption { display: none; }
+  .table { width: 80%; top: 112px; height: 100px; }
+  .seat.pos-left, .seat.pos-right { top: 104px; }
+  .seat { width: 88px; }
+  .seat.pos-left { left: 3%; } .seat.pos-right { right: 3%; }
+  .seat.sage { display: none; }
+  .seat-title { display: none; }
+}

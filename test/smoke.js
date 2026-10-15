@@ -42,6 +42,11 @@ server.listen(0, '127.0.0.1', async () => {
     const sg = await sse(await fetch(`${base}/api/council`, { method: 'POST', body: JSON.stringify({ question: 'Q', participants: [{ id: 'gpt' }], rounds: 1, persona: true }) }));
     assert(sg.find((e) => e.type === 'turn').text.includes('(사극 말투)'), '삼국지 모드 말투');
     assert(!turns[0].text.includes('(사극 말투)'), '일반 모드에는 말투 없음');
+    const sage = sg.find((e) => e.type === 'sage');
+    assert(sage && sage.text.includes('한 줄 요약'), '제갈량의 한마디');
+    assert(sg.findIndex((e) => e.type === 'final') < sg.findIndex((e) => e.type === 'sage'), '결단 뒤에 한마디');
+    assert(!events.some((e) => e.type === 'sage'), '일반 모드에는 제갈량 없음');
+    assert(cfg.sage.name === '제갈량');
     assert(cfg.providers.every((p) => p.persona?.name), '캐릭터 정보');
 
     assert.equal((await fetch(`${base}/`)).status, 200);
