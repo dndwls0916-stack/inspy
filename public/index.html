@@ -33,8 +33,11 @@
           <option value="1">1 (각자 의견만)</option>
           <option value="2" selected>2 (의견 + 반박)</option>
           <option value="3">3 (심화 토론)</option>
+          <option value="c4">합의까지 (최대 4라운드)</option>
+          <option value="c6">합의까지 (최대 6라운드)</option>
         </select>
       </label>
+      <p id="roundsHint" class="hint" hidden>서로 같은 결론에 이를 때까지 토론합니다. 라운드마다 사회자가 합의 여부를 판정하며, 합의가 안 되면 남은 쟁점을 다음 라운드에 넘깁니다. <b>AI 호출이 많아 시간과 사용량을 더 씁니다.</b></p>
       <label class="field">결론 정리 담당(사회자)
         <select id="moderator"></select>
       </label>

@@ -16,7 +16,7 @@ const nameOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.name : byId(i
 const colorOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.color : COLORS[id] || 'var(--accent)');
 
 // --- 아주 작은 마크다운 렌더러 (HTML 이스케이프 후 변환) ---
-const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 function inline(s) {
   return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/(^|\W)\*([^*\n]+)\*(?=\W|$)/g, '$1<em>$2</em>');
 }
@@ -143,12 +143,12 @@ function renderStage(ids) {
     ${cfgSage ? seatHtml('sage', cfgSage, 'sage') : ''}
     <div class="caption" id="caption" hidden></div></div>`;
 }
-function seat(id, state) {
+function seat(id, state, label) {
   const el = document.querySelector(`[data-seat="${id}"]`);
   if (!el) return;
   el.classList.remove('idle', 'thinking', 'speaking', 'done', 'error');
   el.classList.add(state);
-  el.querySelector('.seat-state').textContent = id === 'sage' && state === 'thinking' ? '책략 구상 중…' : id === 'sage' && state === 'done' ? '한마디 올림' : STATE[state];
+  el.querySelector('.seat-state').textContent = label ? label : id === 'sage' && state === 'thinking' ? '책략 구상 중…' : id === 'sage' && state === 'done' ? '한마디 올림' : STATE[state];
 }
 // 자막: 지금 발언의 첫 문장
 function caption(id, text) {
@@ -178,12 +178,18 @@ function handle(ev, ctx) {
     case 'round': {
       const el = document.createElement('div');
       el.className = 'round';
-      el.textContent = sg ? `── 제${ev.round}차 군의(軍議) · 총 ${ev.total}차 ──` : `── ${ev.round}라운드 / 총 ${ev.total}라운드 ──`;
+      const total = ev.consensus ? `합의될 때까지 · 최대 ${ev.total}` : `총 ${ev.total}`;
+      el.textContent = sg ? `── 제${ev.round}차 군의(軍議) · ${total}차 ──` : `── ${ev.round}라운드 / ${total}라운드 ──`;
       if (sg && ev.round > 1) document.querySelectorAll('.seat:not(.sage)').forEach((e) => seat(e.dataset.seat, 'idle'));
       feed.appendChild(el);
       break;
     }
     case 'thinking': {
+      if (ev.round === 'judge') {
+        seat(ev.who, 'speaking', '판정 중…');
+        pending[`judge:${ev.who}`] = add(head(ev.who, ctx.labels[ev.who], '<small>합의 여부 판정 중</small>'), 'pending ' + ev.who);
+        break;
+      }
       if (ev.who === 'sage') {
         seat('sage', 'thinking');
         pending['sage:sage'] = add(`<div class="msg-head"><span class="mini-seal" style="--c:${cfgSage.color}">${cfgSage.hanja}</span>${esc(cfgSage.name)} <small>책략 구상 중</small></div>`, 'pending sage-card');
@@ -212,8 +218,17 @@ function handle(ev, ctx) {
     case 'final': {
       pending[key('final', ev.who)]?.remove();
       seat(ev.who, 'done');
-      add(head('', sg ? '최종 결단(決斷)' : '최종 결론', `<small>${sg ? '주재' : '사회자'}: ${esc(nameOf(ev.who))}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`, 'final');
+      const badge = ev.consensus ? `<span class="verdict ${ev.consensus.reached ? 'yes' : 'no'}">${ev.consensus.reached ? `${ev.consensus.round}라운드 합의` : '합의 못함'}</span>` : '';
+      add(head('', sg ? '최종 결단(決斷)' : '최종 결론', `${badge}<small>${sg ? '주재' : '사회자'}: ${esc(nameOf(ev.who))}${ev.consensus && !ev.consensus.reached && ev.consensus.reason ? ` · ${esc(ev.consensus.reason)}` : ''}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`, 'final');
       ctx.conclusion = ev.text;
+      break;
+    }
+    case 'consensus': {
+      pending[`judge:${ev.who}`]?.remove();
+      seat(ev.who, 'done');
+      const items = (ev.disagreements || []).map((d) => `<li>${esc(d)}</li>`).join('');
+      add(`<div class="msg-head"><span class="verdict ${ev.reached ? 'yes' : 'no'}">${ev.reached ? '합의' : '쟁점 남음'}</span>${sg ? '군의 판정' : '합의 판정'} <small>${esc(ev.round)}라운드 · ${esc(nameOf(ev.who))}</small></div>` +
+        `<div class="msg-body"><p>${esc(ev.summary || '')}</p>${items ? `<p><b>남은 쟁점</b></p><ul>${items}</ul>` : ''}${ev.stalled ? '<p><i>지난 라운드와 입장이 거의 그대로입니다.</i></p>' : ''}</div>`, 'consensus-card ' + (ev.reached ? 'reached' : 'open'));
       break;
     }
     case 'sage': {
@@ -254,7 +269,7 @@ async function runMeeting(question) {
         participants: chosen.map((p) => ({ id: p.id, model: modelValue(p.id) })),
         mode,
         persona: sg,
-        rounds: Number($('rounds').value),
+        ...roundsBody(),
         moderator: $('moderator').value,
         history,
       }),
@@ -285,6 +300,13 @@ async function runMeeting(question) {
     setBusy(false);
   }
 }
+
+// 라운드 선택값: '1'~'3' 은 고정 라운드, 'c4'/'c6' 은 합의까지(최대 N)
+function roundsBody() {
+  const v = $('rounds').value;
+  return v.startsWith('c') ? { consensus: true, maxRounds: Number(v.slice(1)), rounds: Number(v.slice(1)) } : { consensus: false, rounds: Number(v) };
+}
+$('rounds').addEventListener('change', () => { $('roundsHint').hidden = !$('rounds').value.startsWith('c'); });
 
 function setBusy(b) {
   sendBtn.hidden = b;
