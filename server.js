@@ -28,8 +28,10 @@ const autoMode = () => {
   const anyCli = ids.some(cliAvailable);
   return anyKey && anyCli ? 'mixed' : anyKey ? 'api' : anyCli ? 'cli' : 'api';
 };
+const MAX_ATTACH_FILES = 8;
+const MAX_ATTACH_CHARS = 150_000;
 const PUBLIC = path.join(__dirname, 'public');
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.css': 'text/css; charset=utf-8' };
 
 function readStatic(rel) {
   if (sea) {
@@ -56,7 +58,7 @@ function sendJson(res, status, obj) {
   res.end(JSON.stringify(obj));
 }
 
-function readBody(req, limit = 1_000_000) {
+function readBody(req, limit = 2_000_000) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
@@ -127,6 +129,14 @@ async function handleCouncil(req, res) {
 
   const consensus = body.consensus === true;
   const maxRounds = Math.min(8, Math.max(2, Number(body.maxRounds) || 5)); // 합의 모드의 상한(비용 보호)
+  // 첨부: 브라우저가 글자로 뽑아 보낸다. 개수/용량을 서버에서도 제한한다(모든 AI 호출에 들어가므로 비용 보호).
+  const rawAtt = Array.isArray(body.attachments) ? body.attachments : [];
+  if (rawAtt.length > MAX_ATTACH_FILES) return sendJson(res, 400, { error: `첨부는 최대 ${MAX_ATTACH_FILES}개까지입니다` });
+  const attachments = rawAtt
+    .map((a) => ({ name: String(a?.name || '파일').replace(/[\r\n<>]/g, ' ').slice(0, 120), text: String(a?.text || '') }))
+    .filter((a) => a.text.trim());
+  if (attachments.reduce((n, a) => n + a.text.length, 0) > MAX_ATTACH_CHARS) return sendJson(res, 400, { error: `첨부 내용이 너무 깁니다 (합계 ${MAX_ATTACH_CHARS.toLocaleString()}자 이하)` });
+
   const rounds = Math.min(3, Math.max(1, Number(body.rounds) || 2));
   const moderator = participants.some((p) => p.id === body.moderator) ? body.moderator : participants[0].id;
   const history = (Array.isArray(body.history) ? body.history : [])
@@ -139,7 +149,7 @@ async function handleCouncil(req, res) {
   const emit = (ev) => !res.writableEnded && res.write(`data: ${JSON.stringify(ev)}\n\n`);
 
   try {
-    await runCouncil({ question, participants, rounds, consensus, maxRounds, moderator, history, mode, persona: body.persona === true, emit, signal: ac.signal });
+    await runCouncil({ question, participants, attachments, rounds, consensus, maxRounds, moderator, history, mode, persona: body.persona === true, emit, signal: ac.signal });
   } catch (err) {
     emit({ type: 'error', error: String(err.message || err) });
   }

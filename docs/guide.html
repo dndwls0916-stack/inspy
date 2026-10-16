@@ -133,6 +133,21 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx</pre></li>
     <tr><td><b>새 회의 시작</b></td><td>화면과 이어지던 맥락을 지웁니다. 같은 화면에서 이어 질문하면 앞선 결론이 맥락으로 전달됩니다.</td></tr>
     <tr><td><b>중단</b></td><td>진행 중인 회의를 멈춥니다.</td></tr>
   </table>
+  <h3>파일 첨부</h3>
+  <p>질문 입력칸 위의 <b>📎 첨부</b>를 누르거나 파일을 화면에 <b>끌어다 놓으면</b> 파일 내용을 참고 자료로 함께 보냅니다. 모든 AI가 같은 자료를 읽고 토론합니다. 답변에서는 파일 이름을 밝히며 인용하도록 요청합니다.</p>
+  <table>
+    <tr><th>읽을 수 있는 것</th><td>텍스트·마크다운(<code>.txt .md</code>), 표·데이터(<code>.csv .tsv .json .xml</code>), 코드(<code>.py .js .ts .java .c .go</code> 등), 로그·자막(<code>.log .srt .vtt</code>), <b>PDF</b>, <b>Word(<code>.docx</code>)</b></td></tr>
+    <tr><th>아직 안 되는 것</th><td>이미지(사진·스크린샷), 한글(<code>.hwp</code>), 엑셀(<code>.xlsx</code>), 파워포인트(<code>.pptx</code>), 압축 파일, <b>글자가 없는 PDF</b>(스캔한 이미지 PDF). 엑셀은 <b>CSV로 저장</b>해서 올리면 됩니다.</td></tr>
+    <tr><th>한도</th><td>파일 <b>5개</b>까지, 글자 합계 <b>80,000자</b>까지(넘치면 앞부분만 들어가며 "일부만" 표시). 한 파일은 20MB 이하. PDF는 앞 150쪽까지 읽습니다.</td></tr>
+    <tr><th>한글 파일</th><td>메모장 등으로 저장한 <b>CP949(ANSI) 한글 파일도 자동</b>으로 인식합니다.</td></tr>
+  </table>
+  <ul>
+    <li>첨부는 <b>화면에서 제거(×)하거나 "새 회의 시작"을 누를 때까지 유지</b>됩니다. 이어서 질문할 때도 같은 자료가 계속 들어갑니다.</li>
+    <li>글자 추출은 <b>내 PC의 브라우저에서</b> 이루어지고, 추출된 글자만 질문과 함께 서버를 거쳐 AI 회사로 전송됩니다. 파일 원본이나 PDF 라이브러리가 외부로 나가지는 않지만, <b>파일 내용은 선택한 AI 회사의 서버로 전송</b>됩니다. 개인정보·기밀 문서는 올리지 마세요.</li>
+    <li>첨부 안에 "이전 지시를 무시하라" 같은 문장이 있어도 AI에게는 <b>참고 자료로만</b> 전달하며 따르지 않도록 지시합니다. 다만 AI의 판단이므로 100% 보장은 아닙니다. 출처를 알 수 없는 파일은 신중히 올리세요.</li>
+  </ul>
+  <div class="box warn"><b class="t">첨부가 크면 사용량이 크게 늘어납니다</b>첨부 내용은 <b>모든 AI의 모든 라운드 호출마다</b> 다시 들어갑니다(합의 판정 호출은 제외). 예를 들어 30,000자 문서를 3명이 2라운드 토론하면 그 문서가 약 8번 읽힙니다. API 요금이나 구독 한도, 무료 Gemini 키의 분당 제한(429)에 걸리기 쉬우니 <b>필요한 부분만</b> 올리세요.</div>
+
   <h3>합의까지 토론</h3>
   <p>토론 라운드에서 <b>"합의까지"</b>를 고르면 정해진 횟수가 아니라 <b>서로 같은 결론에 이를 때까지</b> 토론합니다.</p>
   <ol>
@@ -172,6 +187,7 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx</pre></li>
   <details><summary>Gemini 로그인: "This client is no longer supported for Gemini Code Assist for individuals"</summary><p>개인 구글 계정 로그인이 중단된 것입니다. <code>gemini</code> CLI 대신 <b>Gemini API 키</b>를 쓰세요. 위 <b>C. 혼합 방식</b>을 따라 하면 됩니다.</p></details>
   <details><summary>"CLI 인자에 사용할 수 없는 문자가 있습니다"</summary><p>모델 입력칸에 허용되지 않는 문자가 있습니다. 영문·숫자·<code>. _ : / -</code>만 쓰거나, 칸을 비워 CLI 기본 모델을 쓰세요.</p></details>
   <details><summary>백신이 실행파일을 막아요</summary><p>서명되지 않은 단일 실행파일이라 일부 백신이 의심할 수 있습니다. 직접 받은 파일이 맞다면 예외로 등록하세요. 마음에 걸리면 아래 "개발자" 방법으로 소스에서 직접 실행할 수 있습니다.</p></details>
+  <details><summary>첨부가 안 돼요 ("지원하지 않는 형식", "글자가 없는 PDF", "첨부 용량이 가득 찼습니다")</summary><p>① 지원 형식은 텍스트·코드·CSV·JSON·PDF·docx입니다. 엑셀은 CSV로 저장해서 올리세요. ② "글자가 없는 PDF"는 스캔한 이미지라서 글자를 읽을 수 없는 경우입니다. 글자를 복사할 수 있는 PDF를 쓰거나, 문서를 텍스트로 복사해 <code>.txt</code>로 저장해 올리세요. ③ 용량이 가득 차면 불필요한 첨부를 × 로 지우거나 필요한 부분만 잘라서 올리세요. ④ 한글이 깨져 보이는 일은 드물지만, 그럴 때는 메모장에서 "UTF-8"로 다시 저장해 올려 보세요.</p></details>
   <details><summary>화면이 오래된 모습이에요</summary><p>브라우저에서 <kbd>Ctrl</kbd>+<kbd>F5</kbd>로 새로고침하세요.</p></details>
   <details><summary>삼국지 말투가 어색해요</summary><p>AI가 말투를 가볍게 흉내 내는 수준입니다. 내용은 일반 모드와 동일하니, 거슬리면 삼국지 모드를 끄세요.</p></details>
 

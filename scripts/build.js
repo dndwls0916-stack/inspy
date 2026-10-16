@@ -48,7 +48,14 @@ async function nodeBinary() {
 
   // 2) 화면 파일과 .env 템플릿을 에셋으로 포함한다
   const assets = { '.env.example': path.join(root, '.env.example') };
-  for (const f of fs.readdirSync(path.join(root, 'public'))) assets[`public/${f}`] = path.join(root, 'public', f);
+  const walk = (dir, rel = '') => {
+    for (const e of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(dir, r);
+      else assets[`public/${r}`] = path.join(dir, r);
+    }
+  };
+  walk(path.join(root, 'public'));
   const config = { main: path.join(build, 'app.cjs'), output: path.join(build, 'app.blob'), disableExperimentalSEAWarning: true, assets };
   fs.writeFileSync(path.join(build, 'sea-config.json'), JSON.stringify(config, null, 2));
   execFileSync(process.execPath, ['--experimental-sea-config', path.join(build, 'sea-config.json')], { stdio: 'inherit' });

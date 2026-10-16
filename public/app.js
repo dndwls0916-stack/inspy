@@ -42,6 +42,128 @@ function md(text) {
   return out.join('');
 }
 
+// --- 첨부 파일: 브라우저에서 글자로 뽑아 질문과 함께 보낸다 ---
+const ATTACH = { maxFiles: 5, maxChars: 80000, maxBytes: 20 * 1024 * 1024, maxPdfPages: 150 };
+const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonl|xml|html?|css|js|mjs|ts|tsx|jsx|py|java|c|cpp|h|cs|go|rs|rb|php|sh|bat|ps1|sql|ya?ml|toml|ini|cfg|conf|log|srt|vtt|tex)$/i;
+let attachments = []; // { name, text, truncated }
+
+// 글자 인코딩: UTF-8 이 아니면 한글 윈도우 파일(CP949)로 본다.
+async function readText(file) {
+  const buf = await file.arrayBuffer();
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf).replace(/^\uFEFF/, '');
+  } catch {
+    return new TextDecoder('euc-kr').decode(buf);
+  }
+}
+
+async function readPdf(file) {
+  const pdfjs = await import('/vendor/pdf.min.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.min.mjs';
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  const pages = Math.min(doc.numPages, ATTACH.maxPdfPages);
+  const out = [];
+  for (let i = 1; i <= pages; i++) {
+    const content = await (await doc.getPage(i)).getTextContent();
+    out.push(content.items.map((it) => it.str + (it.hasEOL ? '\n' : '')).join('').trim());
+  }
+  const text = out.filter(Boolean).join('\n\n');
+  if (!text.trim()) throw new Error('글자가 없는 PDF입니다(스캔한 이미지일 수 있습니다). 글자를 복사할 수 있는 PDF만 읽을 수 있습니다.');
+  return doc.numPages > pages ? `${text}\n\n(PDF 앞쪽 ${pages}쪽만 읽었습니다. 전체 ${doc.numPages}쪽)` : text;
+}
+
+// docx 는 zip 이다: 'word/document.xml' 만 꺼내 글자를 뽑는다. (외부 라이브러리 없이 브라우저의 DecompressionStream 사용)
+async function inflateRaw(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+async function unzipEntry(u8, wanted) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  let e = u8.length - 22;
+  while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error('올바른 docx 파일이 아닙니다');
+  const count = dv.getUint16(e + 10, true);
+  let off = dv.getUint32(e + 16, true);
+  for (let i = 0; i < count && dv.getUint32(off, true) === 0x02014b50; i++) {
+    const method = dv.getUint16(off + 10, true), csize = dv.getUint32(off + 20, true);
+    const nlen = dv.getUint16(off + 28, true), elen = dv.getUint16(off + 30, true), clen = dv.getUint16(off + 32, true), lho = dv.getUint32(off + 42, true);
+    if (new TextDecoder().decode(u8.subarray(off + 46, off + 46 + nlen)) === wanted) {
+      const start = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
+      const data = u8.subarray(start, start + csize);
+      return method === 0 ? data : inflateRaw(data);
+    }
+    off += 46 + nlen + elen + clen;
+  }
+  throw new Error('문서 본문을 찾을 수 없습니다');
+}
+async function readDocx(file) {
+  const xml = new TextDecoder().decode(await unzipEntry(new Uint8Array(await file.arrayBuffer()), 'word/document.xml'));
+  const text = xml
+    .replace(/<w:tab\/>/g, '\t').replace(/<w:br[^>]*\/>/g, '\n')
+    .replace(/<\/w:p>(?=\s*<\/w:tc>)/g, '').replace(/<\/w:tc>/g, '\t').replace(/<\/w:tr>/g, '\n').replace(/<\/w:p>/g, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&(#x?[0-9a-f]+|amp|lt|gt|quot|apos);/gi, (m, g) => ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[g.toLowerCase()] ?? (g[1] === 'x' || g[1] === 'X' ? String.fromCodePoint(parseInt(g.slice(2), 16)) : String.fromCodePoint(Number(g.slice(1))))))
+    .replace(/\n{3,}/g, '\n\n').trim();
+  if (!text) throw new Error('글자가 없는 문서입니다');
+  return text;
+}
+
+const totalChars = () => attachments.reduce((n, a) => n + a.text.length, 0);
+const fmt = (n) => n.toLocaleString('ko-KR');
+function attachMsg(text, kind = '') {
+  const el = $('attachMsg');
+  el.textContent = text;
+  el.className = 'attach-msg ' + kind;
+}
+
+function renderAttachments() {
+  $('attachList').innerHTML = attachments.map((a, i) => `<span class="chip" title="${esc(a.name)}"><b>${esc(a.name)}</b><i>${fmt(a.text.length)}자</i>${a.truncated ? '<span class="warn">일부만</span>' : ''}<button type="button" data-rm="${i}" aria-label="${esc(a.name)} 제거">×</button></span>`).join('');
+  $('attachList').querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => { attachments.splice(Number(b.dataset.rm), 1); renderAttachments(); attachMsg(''); }));
+  if (attachments.length) attachMsg(`첨부 ${attachments.length}개 · ${fmt(totalChars())}자 — 모든 AI가 매 라운드 읽으므로 호출 수만큼 사용량이 늘어납니다`, 'info');
+}
+
+async function addFiles(fileList) {
+  const problems = [];
+  for (const file of [...fileList]) {
+    try {
+      if (attachments.length >= ATTACH.maxFiles) throw new Error(`첨부는 최대 ${ATTACH.maxFiles}개까지입니다`);
+      if (file.size > ATTACH.maxBytes) throw new Error(`파일이 너무 큽니다 (${Math.round(ATTACH.maxBytes / 1048576)}MB 이하)`);
+      const name = file.name;
+      let text;
+      if (/\.pdf$/i.test(name)) text = await readPdf(file);
+      else if (/\.docx$/i.test(name)) text = await readDocx(file);
+      else if (TEXT_EXT.test(name) || file.type.startsWith('text/')) text = await readText(file);
+      else throw new Error('지원하지 않는 형식입니다 (텍스트, 코드, CSV, JSON, PDF, docx 가능. 이미지·hwp·xlsx 등은 아직 안 됩니다)');
+      text = text.replace(/\u0000/g, '').trim();
+      if (!text) throw new Error('내용이 비어 있습니다');
+      const room = ATTACH.maxChars - totalChars();
+      if (room <= 0) throw new Error(`첨부 용량이 가득 찼습니다 (합계 ${fmt(ATTACH.maxChars)}자)`);
+      const truncated = text.length > room;
+      attachments.push({ name, text: truncated ? text.slice(0, room) + '\n(이하 용량 제한으로 생략)' : text, truncated });
+    } catch (err) {
+      problems.push(`${file.name}: ${err.message || err}`);
+    }
+  }
+  renderAttachments();
+  if (problems.length) attachMsg(problems.join(' / '), 'err');
+  else if (attachments.some((a) => a.truncated)) attachMsg(`일부 파일은 용량 제한(합계 ${fmt(ATTACH.maxChars)}자) 때문에 앞부분만 들어갔습니다`);
+}
+
+$('attachBtn').addEventListener('click', () => $('fileInput').click());
+$('fileInput').addEventListener('change', async (e) => { await addFiles(e.target.files); e.target.value = ''; });
+// 끌어다 놓기
+let dragDepth = 0;
+addEventListener('dragenter', (e) => { if (e.dataTransfer?.types?.includes('Files')) { dragDepth++; document.body.classList.add('dragging'); } });
+addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) document.body.classList.remove('dragging'); });
+addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault(); });
+addEventListener('drop', async (e) => {
+  if (!e.dataTransfer?.files?.length) return;
+  e.preventDefault();
+  dragDepth = 0;
+  document.body.classList.remove('dragging');
+  await addFiles(e.dataTransfer.files);
+});
+
 // --- 설정 UI ---
 // 모델 칸 기본값: 환경변수로 고정하지 않았고, 서비스 목록에 없는 기본 모델이면 목록의 추천 모델로 바꾼다.
 function startModel(p) {
@@ -253,7 +375,7 @@ async function runMeeting(question) {
   const chosen = selected();
   if (!chosen.length) return add('<div>참가할 AI를 한 명 이상 선택하세요.</div>', 'err');
 
-  add(esc(question), 'user');
+  add(esc(question) + (attachments.length ? `<div class="att-names">📎 ${attachments.map((a) => esc(a.name)).join(', ')}</div>` : ''), 'user');
   setBusy(true);
   controller = new AbortController();
   const ctx = { labels: {}, conclusion: null };
@@ -266,6 +388,7 @@ async function runMeeting(question) {
       signal: controller.signal,
       body: JSON.stringify({
         question,
+        attachments: attachments.map(({ name, text }) => ({ name, text })),
         participants: chosen.map((p) => ({ id: p.id, model: modelValue(p.id) })),
         mode,
         persona: sg,
@@ -325,6 +448,9 @@ form.addEventListener('submit', (e) => {
 qEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) form.requestSubmit(); });
 stopBtn.addEventListener('click', () => controller?.abort());
 $('reset').addEventListener('click', () => {
+  attachments = [];
+  renderAttachments();
+  attachMsg('');
   controller?.abort();
   history = [];
   agenda = '의제를 올려 주세요';

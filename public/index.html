@@ -50,6 +50,12 @@
         <div class="empty">질문을 입력하면 참가자들이 라운드별로 의견을 나누고,<br>사회자가 최종 결론을 정리해 보여줍니다.</div>
       </div>
       <form id="form" class="composer">
+        <div class="attach-bar">
+          <button type="button" id="attachBtn" class="attach-btn" title="파일 첨부 (끌어다 놓아도 됩니다)">📎 첨부</button>
+          <input type="file" id="fileInput" multiple hidden accept=".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.xml,.html,.htm,.css,.js,.mjs,.ts,.tsx,.jsx,.py,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.bat,.ps1,.sql,.yml,.yaml,.toml,.ini,.cfg,.conf,.log,.srt,.vtt,.tex,.pdf,.docx">
+          <span id="attachList" class="chips"></span>
+          <span id="attachMsg" class="attach-msg" role="status"></span>
+        </div>
         <textarea id="q" rows="2" placeholder="회의에 올릴 질문이나 고민을 입력하세요 (Ctrl/⌘+Enter 전송)"></textarea>
         <button id="send" type="submit">회의 시작</button>
         <button id="stop" type="button" hidden>중단</button>
