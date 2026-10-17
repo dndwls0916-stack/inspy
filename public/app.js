@@ -43,7 +43,7 @@ function md(text) {
 }
 
 // --- 첨부 파일: 브라우저에서 글자로 뽑아 질문과 함께 보낸다 ---
-const ATTACH = { maxFiles: 5, maxChars: 80000, maxBytes: 20 * 1024 * 1024, maxPdfPages: 150 };
+const ATTACH = { maxFiles: 30, maxChars: 80000, maxBytes: 20 * 1024 * 1024, maxPdfPages: 150 };
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonl|xml|html?|css|js|mjs|ts|tsx|jsx|py|java|c|cpp|h|cs|go|rs|rb|php|sh|bat|ps1|sql|ya?ml|toml|ini|cfg|conf|log|srt|vtt|tex)$/i;
 let attachments = []; // { name, text, truncated }
 
@@ -133,7 +133,7 @@ async function addFiles(fileList) {
       if (/\.pdf$/i.test(name)) text = await readPdf(file);
       else if (/\.docx$/i.test(name)) text = await readDocx(file);
       else if (TEXT_EXT.test(name) || file.type.startsWith('text/')) text = await readText(file);
-      else throw new Error('지원하지 않는 형식입니다 (텍스트, 코드, CSV, JSON, PDF, docx 가능. 이미지·hwp·xlsx 등은 아직 안 됩니다)');
+      else throw new Error('지원하지 않는 형식입니다 (텍스트, 코드, CSV, JSON, PDF, docx 가능. 이미지·hwp 는 안 됩니다. 엑셀·파워포인트는 📁 폴더로 읽을 수 있습니다)');
       text = text.replace(/\u0000/g, '').trim();
       if (!text) throw new Error('내용이 비어 있습니다');
       const room = ATTACH.maxChars - totalChars();
@@ -148,6 +148,68 @@ async function addFiles(fileList) {
   if (problems.length) attachMsg(problems.join(' / '), 'err');
   else if (attachments.some((a) => a.truncated)) attachMsg(`일부 파일은 용량 제한(합계 ${fmt(ATTACH.maxChars)}자) 때문에 앞부분만 들어갔습니다`);
 }
+
+// --- 폴더: 서버가 폴더를 읽어 글자로 뽑아 준다. 보낼 파일은 사용자가 골라 첨부로 넣는다 ---
+let folderFiles = [];
+let folderRoot = '';
+async function postJson(url, body) {
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+function renderFolder() {
+  let budget = ATTACH.maxChars - totalChars();
+  $('folderList').innerHTML = folderFiles.map((f, i) => {
+    if (!f.ok) return `<label class="skip"><input type="checkbox" disabled> ${esc(f.rel)} — ${esc(f.note)}</label>`;
+    const fits = f.text.length <= budget;
+    if (fits) budget -= f.text.length;
+    return `<label><input type="checkbox" data-f="${i}" ${fits ? 'checked' : ''}> ${esc(f.rel)} <i>${fmt(f.text.length)}자${f.truncated ? ' · 일부만' : ''}</i></label>`;
+  }).join('') || '<span class="skip">읽을 수 있는 파일이 없습니다</span>';
+  $('folderActions').hidden = !folderFiles.some((f) => f.ok);
+  updateFolderInfo();
+  $('folderList').querySelectorAll('[data-f]').forEach((c) => c.addEventListener('change', updateFolderInfo));
+}
+function pickedFolderFiles() {
+  return [...$('folderList').querySelectorAll('[data-f]:checked')].map((c) => folderFiles[Number(c.dataset.f)]);
+}
+function updateFolderInfo() {
+  const picked = pickedFolderFiles();
+  const n = picked.reduce((a, f) => a + f.text.length, 0);
+  $('folderInfo').textContent = `${picked.length}개 · ${fmt(n)}자 선택 (남은 용량 ${fmt(Math.max(0, ATTACH.maxChars - totalChars()))}자)`;
+}
+$('folderBtn').addEventListener('click', () => { $('folderPanel').hidden = !$('folderPanel').hidden; if (!$('folderPanel').hidden) $('folderPath').focus(); });
+$('folderPath').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('folderScan').click(); } });
+$('folderScan').addEventListener('click', async () => {
+  $('folderInfo').textContent = '';
+  $('folderList').textContent = '읽는 중…';
+  try {
+    const r = await postJson('/api/folder/scan', { path: $('folderPath').value });
+    folderFiles = r.files;
+    folderRoot = r.root;
+    $('folderPath').value = r.root;
+    renderFolder();
+    if (r.truncatedScan) $('folderInfo').textContent += ' · 파일이 많아 일부만 훑었습니다';
+  } catch (err) {
+    folderFiles = [];
+    $('folderActions').hidden = true;
+    $('folderList').innerHTML = `<span class="attach-msg err">${esc(err.message)}</span>`;
+  }
+});
+$('folderAdd').addEventListener('click', () => {
+  const problems = [];
+  for (const f of pickedFolderFiles()) {
+    if (attachments.some((a) => a.name === f.rel)) continue;
+    const room = ATTACH.maxChars - totalChars();
+    if (attachments.length >= ATTACH.maxFiles) { problems.push(`첨부는 최대 ${ATTACH.maxFiles}개까지입니다`); break; }
+    if (room <= 0) { problems.push(`첨부 용량이 가득 찼습니다 (합계 ${fmt(ATTACH.maxChars)}자)`); break; }
+    const truncated = f.truncated || f.text.length > room;
+    attachments.push({ name: f.rel, text: f.text.length > room ? f.text.slice(0, room) + '\n(이하 용량 제한으로 생략)' : f.text, truncated });
+  }
+  renderAttachments();
+  renderFolder();
+  if (problems.length) attachMsg(problems[0], 'err');
+});
 
 $('attachBtn').addEventListener('click', () => $('fileInput').click());
 $('fileInput').addEventListener('change', async (e) => { await addFiles(e.target.files); e.target.value = ''; });
@@ -343,6 +405,7 @@ function handle(ev, ctx) {
       const badge = ev.consensus ? `<span class="verdict ${ev.consensus.reached ? 'yes' : 'no'}">${ev.consensus.reached ? `${ev.consensus.round}라운드 합의` : '합의 못함'}</span>` : '';
       add(head('', sg ? '최종 결단(決斷)' : '최종 결론', `${badge}<small>${sg ? '주재' : '사회자'}: ${esc(nameOf(ev.who))}${ev.consensus && !ev.consensus.reached && ev.consensus.reason ? ` · ${esc(ev.consensus.reason)}` : ''}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`, 'final');
       ctx.conclusion = ev.text;
+      addSaveBar(ev.text);
       break;
     }
     case 'consensus': {
@@ -369,6 +432,28 @@ function handle(ev, ctx) {
     case 'error': add(`<div>${esc(ev.error)}</div>`, 'err'); break;
   }
   feed.scrollTop = feed.scrollHeight;
+}
+
+// 결론을 폴더의 '결과물' 폴더에 파일로 저장 (새 파일로만, 덮어쓰지 않음)
+function addSaveBar(text) {
+  const el = document.createElement('div');
+  el.className = 'save-bar';
+  const base = (agenda || '회의결과').replace(/[\\/:*?"<>|\n]/g, ' ').slice(0, 30).trim() || '회의결과';
+  el.innerHTML = `<span>💾 결과물로 저장</span><input type="text" class="sv-name" value="${esc(base)}" aria-label="파일 이름"><select class="sv-fmt" aria-label="형식"><option value="md">.md</option><option value="docx">.docx (워드)</option><option value="xlsx">.xlsx (엑셀, 표만)</option><option value="html">.html</option><option value="txt">.txt</option><option value="csv">.csv</option></select><button type="button" class="sv-go">저장</button><span class="save-msg" role="status"></span>`;
+  const msg = el.querySelector('.save-msg');
+  el.querySelector('.sv-go').addEventListener('click', async () => {
+    const dir = folderRoot || $('folderPath').value.trim();
+    if (!dir) { msg.className = 'save-msg err'; msg.textContent = '먼저 📁 폴더에서 저장할 폴더를 지정하세요'; $('folderPanel').hidden = false; return; }
+    try {
+      const r = await postJson('/api/folder/save', { path: dir, name: el.querySelector('.sv-name').value, format: el.querySelector('.sv-fmt').value, content: text });
+      msg.className = 'save-msg';
+      msg.textContent = `저장했습니다: ${r.path}`;
+    } catch (err) {
+      msg.className = 'save-msg err';
+      msg.textContent = err.message;
+    }
+  });
+  feed.lastElementChild?.appendChild(el);
 }
 
 async function runMeeting(question) {

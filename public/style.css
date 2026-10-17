@@ -185,3 +185,17 @@ body.sg .attach-btn, body.sg .chip button { background: transparent !important; 
 body.sg .attach-btn { color: var(--text) !important; }
 body.sg .chip button { color: var(--muted) !important; }
 body.sg .chip button:hover { color: #dc2626 !important; }
+
+.folder-panel { flex: 1 1 100%; border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.folder-panel[hidden] { display: none; }
+.folder-row { display: flex; gap: 6px; align-items: center; }
+.folder-row input { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 13px; }
+.folder-row button, .save-bar button { padding: 4px 12px; font-size: 13px; }
+.folder-list { max-height: 160px; overflow: auto; font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+.folder-list label { display: flex; gap: 6px; align-items: baseline; }
+.folder-list .skip { color: var(--muted); }
+.save-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; font-size: 13px; }
+.save-bar input[type=text], .save-bar select { padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 13px; }
+.save-bar .save-msg { font-size: 12px; color: var(--muted); }
+.save-bar .save-msg.err { color: #dc2626; }
+body.sg .folder-row button, body.sg .save-bar button { background: transparent !important; color: var(--text) !important; border: 1px solid var(--line) !important; }

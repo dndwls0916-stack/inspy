@@ -15,6 +15,7 @@ try {
 const { runCouncil } = require('./lib/council');
 const { listAllModels, cliModelChoices } = require('./lib/models');
 const { PERSONAS, SAGE } = require('./lib/personas');
+const { scanFolder, saveOutput } = require('./lib/folder');
 
 const PORT = Number(process.env.PORT) || 3000;
 // 시작 시 기본 실행 방식: --mode=cli | --mode=api (또는 MODE 환경변수). 화면에서 바꿀 수 있다.
@@ -28,7 +29,7 @@ const autoMode = () => {
   const anyCli = ids.some(cliAvailable);
   return anyKey && anyCli ? 'mixed' : anyKey ? 'api' : anyCli ? 'cli' : 'api';
 };
-const MAX_ATTACH_FILES = 8;
+const MAX_ATTACH_FILES = 30;
 const MAX_ATTACH_CHARS = 150_000;
 const PUBLIC = path.join(__dirname, 'public');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.css': 'text/css; charset=utf-8' };
@@ -94,6 +95,31 @@ function config() {
       models: p.models,
     })),
   };
+}
+
+// 이 프로그램은 내 컴퓨터의 폴더를 읽고 쓸 수 있으므로, 다른 웹사이트가 몰래 요청을 보내지 못하게
+// (CSRF / DNS rebinding) 주소(Host)와 출처(Origin)가 이 서버 자신인 요청만 받는다.
+function sameOrigin(req) {
+  const host = String(req.headers.host || '').toLowerCase();
+  if (!/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host)) return false;
+  const origin = req.headers.origin;
+  return !origin || origin.toLowerCase() === `http://${host}`;
+}
+
+async function handleFolder(req, res, action) {
+  let body;
+  try {
+    body = JSON.parse(await readBody(req, 700_000));
+  } catch {
+    return sendJson(res, 400, { error: '잘못된 요청입니다' });
+  }
+  try {
+    if (action === 'scan') return sendJson(res, 200, scanFolder(body.path));
+    const saved = saveOutput(body.path, { name: body.name, format: body.format, content: body.content });
+    return sendJson(res, 200, saved);
+  } catch (err) {
+    return sendJson(res, 400, { error: String(err.message || err) });
+  }
 }
 
 async function handleCouncil(req, res) {
@@ -162,7 +188,10 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && url.pathname === '/api/config') return sendJson(res, 200, config());
     if (req.method === 'GET' && url.pathname === '/api/models') return sendJson(res, 200, isMock() ? {} : await listAllModels());
+    if (req.method === 'POST' && url.pathname.startsWith('/api/') && !sameOrigin(req)) return sendJson(res, 403, { error: '허용되지 않은 요청 출처입니다' });
     if (req.method === 'POST' && url.pathname === '/api/council') return await handleCouncil(req, res);
+    if (req.method === 'POST' && url.pathname === '/api/folder/scan') return await handleFolder(req, res, 'scan');
+    if (req.method === 'POST' && url.pathname === '/api/folder/save') return await handleFolder(req, res, 'save');
 
     if (url.pathname === '/favicon.ico') return res.writeHead(204).end();
 

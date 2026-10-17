@@ -55,8 +55,8 @@ server.listen(0, '127.0.0.1', async () => {
     assert(r.events.filter((e) => e.type === 'turn').every((t) => t.text.includes('첨부 1개 인식')), '토론 발언에는 첨부 포함');
 
     // 5) 한도: 개수 / 용량
-    r = await run(base, { question: 'Q', participants: P, attachments: Array.from({ length: 9 }, (_, i) => ({ name: `f${i}`, text: 'x' })) });
-    assert.equal(r.status, 400); assert(r.json.error.includes('최대 8개'));
+    r = await run(base, { question: 'Q', participants: P, attachments: Array.from({ length: 31 }, (_, i) => ({ name: `f${i}`, text: 'x' })) });
+    assert.equal(r.status, 400); assert(r.json.error.includes('최대 30개'));
     r = await run(base, { question: 'Q', participants: P, attachments: [{ name: 'big', text: 'a'.repeat(150_001) }] });
     assert.equal(r.status, 400); assert(r.json.error.includes('너무 깁니다'));
     r = await run(base, { question: 'Q', participants: P, rounds: 1, moderator: 'claude', attachments: [{ name: 'ok', text: 'a'.repeat(150_000) }] });

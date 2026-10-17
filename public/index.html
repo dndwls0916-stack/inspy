@@ -53,8 +53,21 @@
         <div class="attach-bar">
           <button type="button" id="attachBtn" class="attach-btn" title="파일 첨부 (끌어다 놓아도 됩니다)">📎 첨부</button>
           <input type="file" id="fileInput" multiple hidden accept=".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.xml,.html,.htm,.css,.js,.mjs,.ts,.tsx,.jsx,.py,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.bat,.ps1,.sql,.yml,.yaml,.toml,.ini,.cfg,.conf,.log,.srt,.vtt,.tex,.pdf,.docx">
+          <button type="button" id="folderBtn" class="attach-btn" title="폴더를 지정해 안의 문서를 읽게 합니다">📁 폴더</button>
           <span id="attachList" class="chips"></span>
           <span id="attachMsg" class="attach-msg" role="status"></span>
+        </div>
+        <div id="folderPanel" class="folder-panel" hidden>
+          <div class="folder-row">
+            <input id="folderPath" type="text" placeholder="폴더 경로 (예: C:\\Users\\나\\Documents\\프로젝트)" spellcheck="false">
+            <button type="button" id="folderScan">읽기</button>
+          </div>
+          <p class="hint">텍스트·코드·CSV·docx·xlsx·pptx 를 읽습니다(하위 3단계까지). PDF·hwp·옛 형식(.xls/.ppt/.doc)과 .env·키 파일은 제외됩니다. 결과물은 이 폴더 안 <b>결과물</b> 폴더에 새 파일로만 저장되며 기존 파일은 건드리지 않습니다.</p>
+          <div id="folderList" class="folder-list"></div>
+          <div class="folder-row" id="folderActions" hidden>
+            <button type="button" id="folderAdd">선택한 파일을 첨부</button>
+            <span id="folderInfo" class="attach-msg info"></span>
+          </div>
         </div>
         <textarea id="q" rows="2" placeholder="회의에 올릴 질문이나 고민을 입력하세요 (Ctrl/⌘+Enter 전송)"></textarea>
         <button id="send" type="submit">회의 시작</button>
