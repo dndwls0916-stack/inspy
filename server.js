@@ -15,6 +15,7 @@ try {
 const { runCouncil } = require('./lib/council');
 const { listAllModels, cliModelChoices } = require('./lib/models');
 const { PERSONAS, SAGE } = require('./lib/personas');
+const { scanFolder, saveOutput } = require('./lib/folder');
 
 const PORT = Number(process.env.PORT) || 3000;
 // 시작 시 기본 실행 방식: --mode=cli | --mode=api (또는 MODE 환경변수). 화면에서 바꿀 수 있다.
@@ -28,8 +29,10 @@ const autoMode = () => {
   const anyCli = ids.some(cliAvailable);
   return anyKey && anyCli ? 'mixed' : anyKey ? 'api' : anyCli ? 'cli' : 'api';
 };
+const MAX_ATTACH_FILES = 30;
+const MAX_ATTACH_CHARS = 150_000;
 const PUBLIC = path.join(__dirname, 'public');
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.css': 'text/css; charset=utf-8' };
 
 function readStatic(rel) {
   if (sea) {
@@ -56,7 +59,7 @@ function sendJson(res, status, obj) {
   res.end(JSON.stringify(obj));
 }
 
-function readBody(req, limit = 1_000_000) {
+function readBody(req, limit = 2_000_000) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
@@ -94,6 +97,31 @@ function config() {
   };
 }
 
+// 이 프로그램은 내 컴퓨터의 폴더를 읽고 쓸 수 있으므로, 다른 웹사이트가 몰래 요청을 보내지 못하게
+// (CSRF / DNS rebinding) 주소(Host)와 출처(Origin)가 이 서버 자신인 요청만 받는다.
+function sameOrigin(req) {
+  const host = String(req.headers.host || '').toLowerCase();
+  if (!/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host)) return false;
+  const origin = req.headers.origin;
+  return !origin || origin.toLowerCase() === `http://${host}`;
+}
+
+async function handleFolder(req, res, action) {
+  let body;
+  try {
+    body = JSON.parse(await readBody(req, 700_000));
+  } catch {
+    return sendJson(res, 400, { error: '잘못된 요청입니다' });
+  }
+  try {
+    if (action === 'scan') return sendJson(res, 200, scanFolder(body.path));
+    const saved = saveOutput(body.path, { name: body.name, format: body.format, content: body.content });
+    return sendJson(res, 200, saved);
+  } catch (err) {
+    return sendJson(res, 400, { error: String(err.message || err) });
+  }
+}
+
 async function handleCouncil(req, res) {
   let body;
   try {
@@ -127,6 +155,14 @@ async function handleCouncil(req, res) {
 
   const consensus = body.consensus === true;
   const maxRounds = Math.min(8, Math.max(2, Number(body.maxRounds) || 5)); // 합의 모드의 상한(비용 보호)
+  // 첨부: 브라우저가 글자로 뽑아 보낸다. 개수/용량을 서버에서도 제한한다(모든 AI 호출에 들어가므로 비용 보호).
+  const rawAtt = Array.isArray(body.attachments) ? body.attachments : [];
+  if (rawAtt.length > MAX_ATTACH_FILES) return sendJson(res, 400, { error: `첨부는 최대 ${MAX_ATTACH_FILES}개까지입니다` });
+  const attachments = rawAtt
+    .map((a) => ({ name: String(a?.name || '파일').replace(/[\r\n<>]/g, ' ').slice(0, 120), text: String(a?.text || '') }))
+    .filter((a) => a.text.trim());
+  if (attachments.reduce((n, a) => n + a.text.length, 0) > MAX_ATTACH_CHARS) return sendJson(res, 400, { error: `첨부 내용이 너무 깁니다 (합계 ${MAX_ATTACH_CHARS.toLocaleString()}자 이하)` });
+
   const rounds = Math.min(3, Math.max(1, Number(body.rounds) || 2));
   const moderator = participants.some((p) => p.id === body.moderator) ? body.moderator : participants[0].id;
   const history = (Array.isArray(body.history) ? body.history : [])
@@ -139,7 +175,7 @@ async function handleCouncil(req, res) {
   const emit = (ev) => !res.writableEnded && res.write(`data: ${JSON.stringify(ev)}\n\n`);
 
   try {
-    await runCouncil({ question, participants, rounds, consensus, maxRounds, moderator, history, mode, persona: body.persona === true, emit, signal: ac.signal });
+    await runCouncil({ question, participants, attachments, rounds, consensus, maxRounds, moderator, history, mode, persona: body.persona === true, emit, signal: ac.signal });
   } catch (err) {
     emit({ type: 'error', error: String(err.message || err) });
   }
@@ -152,7 +188,10 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && url.pathname === '/api/config') return sendJson(res, 200, config());
     if (req.method === 'GET' && url.pathname === '/api/models') return sendJson(res, 200, isMock() ? {} : await listAllModels());
+    if (req.method === 'POST' && url.pathname.startsWith('/api/') && !sameOrigin(req)) return sendJson(res, 403, { error: '허용되지 않은 요청 출처입니다' });
     if (req.method === 'POST' && url.pathname === '/api/council') return await handleCouncil(req, res);
+    if (req.method === 'POST' && url.pathname === '/api/folder/scan') return await handleFolder(req, res, 'scan');
+    if (req.method === 'POST' && url.pathname === '/api/folder/save') return await handleFolder(req, res, 'save');
 
     if (url.pathname === '/favicon.ico') return res.writeHead(204).end();
 

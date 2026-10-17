@@ -15,10 +15,11 @@
     "demo": "MOCK=1 node server.js",
     "build:exe": "node scripts/build.js",
     "build:exe:win": "node scripts/build.js --target=win-x64",
-    "test": "MOCK=1 node test/smoke.js && node test/cli.js && node test/models.js && node test/consensus.js"
+    "test": "MOCK=1 node test/smoke.js && node test/cli.js && node test/models.js && node test/consensus.js && node test/attachments.js && node test/folder.js"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
+    "pdfjs-dist": "^6.4.299",
     "postject": "^1.0.0-alpha.6"
   }
 }
