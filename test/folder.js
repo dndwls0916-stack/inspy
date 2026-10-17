@@ -7,7 +7,7 @@ process.env.MOCK = '1';
 const { server } = require('../server');
 const { scanFolder, saveOutput } = require('../lib/folder');
 const { writeZip, readZip } = require('../lib/zip');
-const { xlsxBuild, xlsxText, docxBuild, docxText, tableRows } = require('../lib/office');
+const { xlsxBuild, xlsxText, docxBuild, docxText, pptxBuild, pptxText, slidesFromMarkdown, tableRows } = require('../lib/office');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'council-folder-'));
 fs.mkdirSync(path.join(tmp, 'sub'));
@@ -27,6 +27,17 @@ assert.equal(z.read('a/b.txt').toString(), '가나다');
 assert.equal(xlsxText(xlsxBuild('| 이름 | 값 |\n|---|---|\n| a & b | 1 |')), '## 시트: 결과\n이름\t값\na & b\t1');
 assert(docxText(docxBuild('# 제목\n- 항목\n본문', 'T')).includes('• 항목'));
 assert.deepEqual(tableRows('a,"b,c"\n1,2'), [['a', 'b,c'], ['1', '2']]);
+
+// pptx 만들기: 제목줄마다 슬라이드, 7개 넘으면 (계속), 특수문자 이스케이프, 읽기와 왕복
+const md = '# 결론\n요약 & <b>\n\n## 방향\n- 하나\n  - 하위\n1. 번호\n\n## 위험\n' + Array.from({ length: 9 }, (_, i) => `- 위험${i + 1}`).join('\n');
+const sl = slidesFromMarkdown(md, 'T');
+assert.deepEqual(sl.map((x) => x.title), ['결론', '방향', '위험', '위험 (계속)']);
+assert.equal(sl[3].bullets.length, 2);
+const back = pptxText(pptxBuild(md, 'T'));
+assert(back.includes('## 슬라이드 4\n위험 (계속)\n위험8\n위험9') && back.includes('요약 & <b>'));
+assert.equal(slidesFromMarkdown('제목 없는 본문', '이름')[0].title, '이름', '제목줄이 없으면 파일 이름이 제목');
+assert.equal(slidesFromMarkdown('', 'x').length, 1);
+assert(slidesFromMarkdown(Array.from({ length: 200 }, (_, i) => `## s${i}\n- a`).join('\n'), 'x').length <= 60, '슬라이드 수 상한');
 
 // 스캔: 비밀/숨김/무시 폴더 제외, 인코딩, 용량 제한
 const r = scanFolder(tmp);
@@ -52,6 +63,8 @@ assert.throws(() => saveOutput(tmp, { name: 'x', format: 'exe', content: 'a' }),
 assert.throws(() => saveOutput(tmp, { name: 'x', format: 'md', content: '  ' }), /내용이 없/);
 const sx = saveOutput(tmp, { name: '표', format: 'xlsx', content: '| a | b |\n| 1 | 2 |' });
 assert.equal(xlsxText(fs.readFileSync(sx.path)), '## 시트: 결과\na\tb\n1\t2');
+const sp = saveOutput(tmp, { name: '발표', format: 'pptx', content: md });
+assert(pptxText(fs.readFileSync(sp.path)).includes('## 슬라이드 2\n방향'));
 // 결과물 폴더는 다시 스캔할 때 제외
 assert(!scanFolder(tmp).files.some((f) => f.rel.startsWith('결과물/')));
 
