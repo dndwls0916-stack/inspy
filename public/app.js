@@ -122,6 +122,7 @@ function attachMsg(text, kind = '') {
 }
 
 function renderAttachments() {
+  scheduleEstimate();
   $('attachList').innerHTML = attachments.map((a, i) => `<span class="chip" title="${esc(a.name)}"><b>${esc(a.name)}</b><i>${fmt(a.text.length)}자</i>${a.truncated ? '<span class="warn">일부만</span>' : ''}<button type="button" data-rm="${i}" aria-label="${esc(a.name)} 제거">×</button></span>`).join('');
   $('attachList').querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => { attachments.splice(Number(b.dataset.rm), 1); renderAttachments(); attachMsg(''); }));
   if (attachments.length) attachMsg(`첨부 ${attachments.length}개 · ${fmt(totalChars())}자 — 모든 AI가 매 라운드 읽으므로 호출 수만큼 사용량이 늘어납니다`, 'info');
@@ -329,7 +330,7 @@ $('team').addEventListener('change', () => {
     }
   }
   $('team').value = '';
-  renderParticipants();
+  renderParticipants(true); // 방금 정한 역할을 이전 화면 값으로 덮어쓰지 않는다
   syncSg();
 });
 
@@ -343,9 +344,11 @@ function defaultSeats() {
   return (usable.length ? usable : providers).map((p) => ({ uid: p.id, provider: p.id }));
 }
 const warnText = (p) => (mode === 'cli' ? `'${p.cliBin}' CLI 설치·로그인이 필요합니다` : mode === 'mixed' ? `.env 의 ${p.keyEnv} 또는 '${p.cliBin}' CLI 가 필요합니다` : `.env 에 ${p.keyEnv} 가 필요합니다`);
-function renderParticipants() {
+function renderParticipants(skipSave = false) {
   const box = $('participants');
   if (!seats.length) seats = defaultSeats();
+  else if (!skipSave && box.querySelector('select[data-modelsel]')) saveOpts(); // 다시 그려도(예: 모델 목록이 늦게 도착) 고른 값이 사라지지 않게
+  
   box.innerHTML = '';
   for (const seat of seats) {
     const p = byId(seat.uid);
@@ -366,6 +369,7 @@ function renderParticipants() {
   renderAddSeat();
   wireModelSelects();
   renderModerator();
+  scheduleEstimate();
 }
 // "+ 참가자 추가": 같은 AI 를 여러 자리에 앉힐 수도 있다(예: Claude 변호사 + Claude 비판자)
 function renderAddSeat() {
@@ -553,6 +557,10 @@ function handle(ev, ctx) {
       pending['sage:sage']?.remove();
       break;
     }
+    case 'budget': add(`<div class="msg-head">⚠️ 호출 상한 <small>${esc(ev.used)}/${esc(ev.max)}회</small></div><div class="msg-body"><p>${esc(ev.message)}</p></div>`, 'budget-card'); break;
+    case 'usage': add(`AI 호출 ${esc(ev.calls)}${ev.maxCalls ? ` / 상한 ${esc(ev.maxCalls)}` : ''}회 사용`, 'minutes-note'); break;
+    case 'minutes': add(`📝 회의록 저장됨: ${esc(ev.path)}`, 'minutes-note'); break;
+    case 'done': ctx.done = true; break;
     case 'error': add(`<div>${esc(ev.error)}</div>`, 'err'); break;
   }
   feed.scrollTop = feed.scrollHeight;
@@ -603,6 +611,8 @@ async function runMeeting(question) {
         persona: sg,
         ...roundsBody(),
         moderator: $('moderator').value,
+        maxCalls: Number($('maxCalls').value),
+        saveMinutes: $('saveMinutes').checked,
         history,
       }),
     });
@@ -622,6 +632,7 @@ async function runMeeting(question) {
         if (chunk.startsWith('data: ')) handle(JSON.parse(chunk.slice(6)), ctx);
       }
     }
+    if (!ctx.done && !controller.signal.aborted) add('<div>연결이 끊겨 회의가 도중에 끝났을 수 있습니다. 위 기록은 그때까지의 내용입니다. (서버가 켜져 있다면 회의록 폴더에 기록이 남아 있을 수 있습니다)</div>', 'err');
     if (ctx.conclusion) history.push({ question, conclusion: ctx.conclusion });
   } catch (err) {
     if (err.name !== 'AbortError') add(`<div>${esc(err.message)}</div>`, 'err');
@@ -713,6 +724,19 @@ fetch('/api/config').then((r) => r.json()).then((cfg) => {
   providers = cfg.providers;
   $('demo').hidden = !cfg.mock;
   cfgSage = cfg.sage;
+  { // 서버의 기본 호출 상한(.env 의 MAX_CALLS)을 화면에 반영
+    const sel = $('maxCalls');
+    const want = String(cfg.defaultMaxCalls || 120);
+    if (![...sel.options].some((o) => o.value === want)) {
+      const o = new Option(`${want}회 (기본)`, want);
+      const after = [...sel.options].find((x) => Number(x.value) > Number(want));
+      sel.add(o, after || null);
+    }
+    sel.value = want;
+    let off = false;
+    try { off = localStorage.getItem('saveMinutes') === '0'; } catch {}
+    $('saveMinutes').checked = cfg.minutesDefault !== false && !off;
+  }
   cfgRoles = cfg.roles || [];
   cfgTeams = cfg.teams || [];
   renderTeams();
@@ -723,3 +747,30 @@ fetch('/api/config').then((r) => r.json()).then((cfg) => {
     add('<div>사용 가능한 AI가 없습니다. <code>.env</code> 에 API 키를 넣거나 claude / codex / gemini CLI를 설치·로그인하세요. (README 참고)</div>', 'err');
   }
 });
+
+
+// --- 시작 전 예상 호출 수/토큰 ---
+let estTimer = null;
+function scheduleEstimate() {
+  clearTimeout(estTimer);
+  estTimer = setTimeout(updateEstimate, 300);
+}
+async function updateEstimate() {
+  const el = $('estimate');
+  const n = selected().length;
+  if (!n) { el.textContent = ''; return; }
+  try {
+    const maxCalls = Number($('maxCalls').value);
+    const r = await postJson('/api/estimate', { n, ...roundsBody(), persona: sg, chars: qEl.value.length + totalChars(), maxCalls });
+    const k = (x) => (x < 1000 ? `${x}` : x < 1e6 ? `${Math.round(x / 100) / 10}천` : `${Math.round(x / 1e5) / 10}백만`);
+    const calls = r.calls.min === r.calls.max ? `<b>${r.calls.max}회</b>` : `<b>${r.calls.min}~${r.calls.max}회</b>`;
+    el.className = 'estimate' + (r.calls.capped || r.calls.max >= 100 ? ' warn' : '');
+    el.innerHTML = `예상 AI 호출 ${calls}${r.calls.capped ? ` (상한 ${maxCalls}회에서 멈춤)` : ''} · 입력 약 ${k(r.inputTokens.min)}${r.inputTokens.min === r.inputTokens.max ? '' : `~${k(r.inputTokens.max)}`} 토큰 <small>(대략, 첨부는 매번 다시 들어갑니다)</small>`;
+  } catch {
+    el.textContent = '';
+  }
+}
+document.addEventListener('input', scheduleEstimate);
+document.addEventListener('change', scheduleEstimate);
+
+$('saveMinutes').addEventListener('change', () => { try { localStorage.setItem('saveMinutes', $('saveMinutes').checked ? '1' : '0'); } catch {} });

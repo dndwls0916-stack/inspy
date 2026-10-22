@@ -50,6 +50,17 @@
       <label class="field">결론 정리 담당(사회자)
         <select id="moderator"></select>
       </label>
+      <label class="field">AI 호출 상한 <small>회의 한 번의 최대 호출 횟수</small>
+        <select id="maxCalls">
+          <option value="30">30회</option>
+          <option value="60">60회</option>
+          <option value="120" selected>120회 (기본)</option>
+          <option value="250">250회</option>
+          <option value="500">500회</option>
+        </select>
+      </label>
+      <p class="hint">상한에 닿으면 그 시점까지의 토론으로 결론을 정리하고 멈춥니다. 시작 버튼 위에 예상 호출 수가 표시됩니다.</p>
+      <label class="check"><input type="checkbox" id="saveMinutes" checked> <span>회의록 자동 저장 <small>실행파일 옆 <b>회의록</b> 폴더에 .md / .jsonl</small></span></label>
       <button id="reset" class="ghost" type="button">새 회의 시작</button>
     </aside>
 
@@ -78,6 +89,7 @@
             <span id="folderInfo" class="attach-msg info"></span>
           </div>
         </div>
+        <div id="estimate" class="estimate" aria-live="polite"></div>
         <textarea id="q" rows="2" placeholder="회의에 올릴 질문이나 고민을 입력하세요 (Ctrl/⌘+Enter 전송)"></textarea>
         <button id="send" type="submit">회의 시작</button>
         <button id="stop" type="button" hidden>중단</button>
