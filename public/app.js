@@ -9,8 +9,8 @@ let history = []; // 이전 회의의 질문/결론 (후속 질문에 맥락으�
 let controller = null;
 let cfgSage = null;
 let liveModels = {}; // 서비스에서 가져온 모델 목록 { gpt: {ids, pick}, ... }
-let sg = true; // 삼국지 모드
-try { sg = localStorage.getItem('sg') !== '0'; } catch {}
+let sg = false; // 삼국지 모드 (기본은 꺼짐 — 직업 역할로 회의)
+try { sg = localStorage.getItem('sg') === '1'; } catch {}
 const byId = (id) => providers.find((p) => p.id === id);
 const nameOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.name : byId(id)?.label || id);
 const colorOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.color : COLORS[id] || 'var(--accent)');
@@ -263,6 +263,45 @@ function wireModelSelects() {
   });
 }
 
+// 참가자별 역할/생각 깊이 (모드를 바꿔 다시 그려도 유지)
+const partState = {};
+const EFFORT_LABEL = { low: '낮음', medium: '보통', high: '높음' };
+function roleOptions(selected) {
+  const groups = {};
+  for (const r of cfgRoles) (groups[r.group] ||= []).push(r);
+  return `<option value="">역할 없음</option>` + Object.entries(groups).map(([g, list]) => `<optgroup label="${esc(g)}">${list.map((r) => `<option value="${esc(r.id)}" title="${esc(r.view)}" ${r.id === selected ? 'selected' : ''}>${esc(r.icon)} ${esc(r.name)}</option>`).join('')}</optgroup>`).join('');
+}
+function optsHtml(p) {
+  const st = partState[p.id] || {};
+  return `<div class="p-opts">
+      <select data-role="${p.id}" ${ok(p) ? '' : 'disabled'} aria-label="${esc(p.label)} 역할">${roleOptions(st.role)}</select>
+      <select data-effort="${p.id}" ${ok(p) ? '' : 'disabled'} aria-label="${esc(p.label)} 생각 깊이">
+        <option value="">생각 깊이: 자동</option>${['low', 'medium', 'high'].map((e) => `<option value="${e}" ${st.effort === e ? 'selected' : ''}>생각 깊이: ${EFFORT_LABEL[e]}</option>`).join('')}
+      </select></div>`;
+}
+const roleOf = (id) => document.querySelector(`select[data-role="${id}"]`)?.value || '';
+const effortOf = (id) => document.querySelector(`select[data-effort="${id}"]`)?.value || '';
+function saveOpts() {
+  for (const p of providers) partState[p.id] = { role: roleOf(p.id), effort: effortOf(p.id) };
+}
+const roleBadge = (ev) => (ev.roleName ? `<span class="role-badge">${esc((cfgRoles.find((r) => r.id === ev.role) || {}).icon || '')} ${esc(ev.roleName)}</span>` : '');
+const effortBadge = (ev) => (ev.effort ? `<span class="effort-badge ${ev.effortApplied ? '' : 'off'}" title="${ev.effortApplied ? '이 호출에 적용됨' : '이 모델/방식은 생각 깊이 설정을 받지 않아 기본값으로 실행했습니다'}">깊이 ${EFFORT_LABEL[ev.effort]}${ev.effortApplied ? '' : ' (미적용)'}</span>` : '');
+
+function renderTeams() {
+  $('team').innerHTML = `<option value="">직접 선택</option>` + cfgTeams.map((t) => `<option value="${esc(t.id)}">${esc(t.name)} — ${t.roles.map((r) => esc(cfgRoles.find((x) => x.id === r)?.name || r)).join(' · ')}</option>`).join('') + `<option value="__clear">역할 모두 해제</option>`;
+}
+$('team').addEventListener('change', () => {
+  const v = $('team').value;
+  if (!v) return;
+  const team = cfgTeams.find((t) => t.id === v);
+  selected().forEach((p, i) => {
+    const sel = document.querySelector(`select[data-role="${p.id}"]`);
+    if (sel) sel.value = v === '__clear' ? '' : team?.roles[i] || '';
+  });
+  saveOpts();
+  $('team').value = '';
+});
+
 function renderParticipants() {
   const box = $('participants');
   box.innerHTML = '';
@@ -273,10 +312,12 @@ function renderParticipants() {
       <div class="p-head"><span class="dot" style="background:${colorOf(p.id)}"></span>${esc(nameOf(p.id))}<span class="vendor">${sg ? p.label + ' · ' : ''}${p.vendor}</span>
         <label><input type="checkbox" data-id="${p.id}" ${ok(p) ? 'checked' : 'disabled'}> 참가</label></div>
       ${modelSelectHtml(p)}
+      ${optsHtml(p)}
       ${ok(p) ? '' : `<div class="p-warn">${mode === 'cli' ? `'${p.cliBin}' CLI 설치·로그인이 필요합니다` : mode === 'mixed' ? `.env 의 ${p.keyEnv} 또는 '${p.cliBin}' CLI 가 필요합니다` : `.env 에 ${p.keyEnv} 가 필요합니다`}</div>`}`;
     box.appendChild(card);
   }
   box.querySelectorAll('input[type=checkbox]').forEach((c) => c.addEventListener('change', () => { c.closest('.p-card').classList.toggle('off', !c.checked); renderModerator(); }));
+  box.querySelectorAll('select[data-role], select[data-effort]').forEach((x) => x.addEventListener('change', saveOpts));
   wireModelSelects();
   renderModerator();
 }
@@ -312,6 +353,7 @@ const head = (id, label, extra = '') => {
 const STATE = { idle: '대기', thinking: '숙고 중…', speaking: '결단 중…', done: '발언 완료', error: '낙마(오류)' };
 const POS = { claude: 'top', gpt: 'left', gemini: 'right' };
 let agenda = '의제를 올려 주세요';
+let cfgRoles = [], cfgTeams = [];
 const seatHtml = (id, p, extra = '') => `<div class="seat idle ${extra}" data-seat="${id}" style="--c:${p.color}">
   <div class="seal">${p.hanja}</div>
   <div class="seat-name">${esc(p.name)}${byId(id) ? ` <small>${esc(byId(id).label)}</small>` : ''}</div>
@@ -389,14 +431,14 @@ function handle(ev, ctx) {
       caption(ev.who, ev.text);
       const el = pending[key(ev.round, ev.who)] || add('', ev.who);
       el.className = 'msg ' + ev.who;
-      el.innerHTML = head(ev.who, ev.label, `<small class="model" title="${ev.requested && ev.requested !== ev.model ? `선택한 ${esc(ev.requested)} 는 사용할 수 없어 대체했습니다` : ''}">${esc(ev.model || 'CLI 기본')}${ev.requested && ev.requested !== ev.model ? ` ← ${esc(ev.requested)} 대체` : ''}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`;
+      el.innerHTML = head(ev.who, ev.label, `${roleBadge(ev)}${effortBadge(ev)}<small class="model" title="${ev.requested && ev.requested !== ev.model ? `선택한 ${esc(ev.requested)} 는 사용할 수 없어 대체했습니다` : ''}">${esc(ev.model || 'CLI 기본')}${ev.requested && ev.requested !== ev.model ? ` ← ${esc(ev.requested)} 대체` : ''}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`;
       break;
     }
     case 'turn_error': {
       seat(ev.who, 'error');
       const el = pending[key(ev.round, ev.who)] || add('', '');
       el.className = 'msg err';
-      el.innerHTML = head(ev.who, ev.label, '<small>오류</small>') + `<div>${esc(ev.error)}</div>`;
+      el.innerHTML = head(ev.who, ev.label, `${roleBadge(ev)}<small>오류</small>`) + `<div>${esc(ev.error)}</div>`;
       break;
     }
     case 'final': {
@@ -474,7 +516,7 @@ async function runMeeting(question) {
       body: JSON.stringify({
         question,
         attachments: attachments.map(({ name, text }) => ({ name, text })),
-        participants: chosen.map((p) => ({ id: p.id, model: modelValue(p.id) })),
+        participants: chosen.map((p) => ({ id: p.id, model: modelValue(p.id), role: roleOf(p.id), effort: effortOf(p.id) })),
         mode,
         persona: sg,
         ...roundsBody(),
@@ -578,6 +620,9 @@ fetch('/api/config').then((r) => r.json()).then((cfg) => {
   providers = cfg.providers;
   $('demo').hidden = !cfg.mock;
   cfgSage = cfg.sage;
+  cfgRoles = cfg.roles || [];
+  cfgTeams = cfg.teams || [];
+  renderTeams();
   setMode(cfg.defaultMode);
   applyTheme();
   if (!providers.some((p) => p.apiConfigured || p.cliAvailable)) {

@@ -4,7 +4,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { loadEnv, appDir } = require('./lib/env');
 loadEnv();
-const { PROVIDERS, isConfigured, hasApiKey, cliAvailable, defaultModel, pinnedModel, isMock } = require('./lib/providers');
+const { PROVIDERS, isConfigured, hasApiKey, cliAvailable, defaultModel, pinnedModel, isMock, EFFORTS } = require('./lib/providers');
 
 // 단일 실행파일(SEA)로 실행 중이면 화면 파일을 실행파일 안에서 읽는다.
 let sea = null;
@@ -16,6 +16,7 @@ const { runCouncil } = require('./lib/council');
 const { listAllModels, cliModelChoices } = require('./lib/models');
 const { PERSONAS, SAGE } = require('./lib/personas');
 const { scanFolder, saveOutput } = require('./lib/folder');
+const { ROLES, TEAMS, publicRoles } = require('./lib/roles');
 
 const PORT = Number(process.env.PORT) || 3000;
 // 시작 시 기본 실행 방식: --mode=cli | --mode=api (또는 MODE 환경변수). 화면에서 바꿀 수 있다.
@@ -80,6 +81,8 @@ function config() {
     mock: isMock(),
     defaultMode: explicitMode || autoMode(),
     sage: SAGE,
+    roles: publicRoles(),
+    teams: TEAMS,
     providers: Object.entries(PROVIDERS).map(([id, p]) => ({
       id,
       label: p.label,
@@ -140,7 +143,9 @@ async function handleCouncil(req, res) {
     .map((p) => {
       const typed = String(p.model || '').trim().slice(0, 100);
       // CLI 모드에서 모델을 비우면 CLI 자체 기본 모델을 쓴다.
-      return { id: p.id, model: typed }; // 비우면 호출 시점에 자동 결정(API: 서비스 목록의 추천, CLI: CLI 기본)
+      const role = ROLES[p.role] ? p.role : '';
+      const effort = EFFORTS.includes(p.effort) ? p.effort : ''; // '' = 자동(서비스 기본)
+      return { id: p.id, model: typed, role, effort }; // 비우면 호출 시점에 자동 결정(API: 서비스 목록의 추천, CLI: CLI 기본)
     });
   if (!participants.length) return sendJson(res, 400, { error: '참가할 AI를 한 명 이상 선택하세요' });
   const missing = participants.filter((p) => !isConfigured(p.id, mode));
