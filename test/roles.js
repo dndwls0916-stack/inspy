@@ -3,12 +3,27 @@ const assert = require('assert');
 const { ROLES, TEAMS, roleBlock, publicRoles } = require('../lib/roles');
 
 // --- 역할 정의 ---
-assert(Object.keys(ROLES).length >= 12);
+assert(Object.keys(ROLES).length >= 50, '회의 참여자 역할을 폭넓게 제공');
 for (const [id, r] of Object.entries(ROLES)) {
   assert(r.name && r.view && r.checks.length >= 3 && r.caution, `${id}: 필드가 빠짐`);
   assert(roleBlock(id).includes(r.name) && roleBlock(id).includes(r.checks[0]));
 }
-for (const t of TEAMS) assert(t.roles.length === 3 && t.roles.every((r) => ROLES[r]), `${t.id}: 팀의 역할이 잘못됨`);
+for (const t of TEAMS) assert(t.roles.length >= 3 && t.roles.length <= 8 && t.roles.every((r) => ROLES[r]) && new Set(t.roles).size === t.roles.length && t.group, `${t.id}: 팀 구성이 잘못됨`);
+assert.equal(new Set(TEAMS.map((t) => t.id)).size, TEAMS.length, '팀 id 는 유일');
+// 주식투자팀
+const stock = TEAMS.find((t) => t.id === 'stock_team');
+assert(stock && ['fund_manager', 'equity_analyst', 'risk_manager', 'quant', 'macro', 'short_seller'].every((r) => stock.roles.includes(r)), '주식투자팀: 펀드매니저·애널리스트·리스크·퀀트·매크로·공매도');
+for (const id of ['fund_manager', 'equity_analyst', 'quant', 'trader', 'risk_manager', 'macro', 'value_investor', 'technical', 'short_seller', 'credit', 'esg', 'ic_chair']) {
+  assert.equal(ROLES[id].group, '주식투자팀', id);
+  assert(ROLES[id].caution.includes('실시간 시세') && ROLES[id].caution.includes('투자 권유가 아닌'), `${id}: 투자 역할은 실시간 데이터 부재와 투자 권유 아님을 밝힌다`);
+}
+assert(roleBlock('fund_manager').includes('펀드매니저') && roleBlock('fund_manager').includes('포트폴리오'));
+// 일반 회의 참석자 유형
+for (const id of ['ceo', 'cfo', 'cto', 'coo', 'manager', 'staff', 'board', 'compliance', 'risk', 'auditor', 'privacy', 'designer', 'qa', 'devops', 'sales', 'cs', 'pr', 'ops', 'union', 'facilitator', 'consultant', 'end_user']) assert(ROLES[id], `${id} 역할`);
+const groups = new Set(publicRoles().map((r) => r.group));
+assert(['경영·의사결정', '주식투자팀', '법무·리스크·감사', '기술·제품', '사업·고객', '운영·인사', '관점·진행'].every((g) => groups.has(g)));
+const pr = publicRoles();
+assert.deepEqual(pr.map((r) => r.group).filter((g, i, a) => a.indexOf(g) === i && a.lastIndexOf(g) === a.map((x, j) => (x === g ? j : -1)).filter((j) => j >= 0).pop()), [...new Set(pr.map((r) => r.group))], '그룹은 한 덩어리로 묶여 있다');
 assert.equal(roleBlock(''), '');
 assert.equal(roleBlock('nope'), '');
 assert(publicRoles().every((r) => !('checks' in r) && !('caution' in r)), '화면에는 관점 요약만');
@@ -119,7 +134,7 @@ async function serverTests() {
   };
   try {
     const cfg = await (await fetch(`${base}/api/config`)).json();
-    assert(cfg.roles.length >= 12 && cfg.teams.length >= 5);
+    assert(cfg.roles.length >= 50 && cfg.teams.length >= 20 && cfg.teams.every((t) => t.group));
     const ev = await run({
       question: '이 계약을 해도 될까?', rounds: 1, moderator: 'claude', mode: 'api',
       participants: [{ id: 'gpt', role: 'lawyer', effort: 'high' }, { id: 'gemini', role: 'investor', effort: 'low' }, { id: 'claude', role: 'bogus', effort: 'turbo' }],

@@ -300,21 +300,40 @@ const roleBadge = (ev) => (ev.roleName ? `<span class="role-badge">${esc((cfgRol
 const effortBadge = (ev) => (ev.effort ? `<span class="effort-badge ${ev.effortApplied ? '' : 'off'}" title="${ev.effortApplied ? '이 호출에 적용됨' : '이 모델/방식은 생각 깊이 설정을 받지 않아 기본값으로 실행했습니다'}">깊이 ${EFFORT_LABEL[ev.effort]}${ev.effortApplied ? '' : ' (미적용)'}</span>` : '');
 
 function renderTeams() {
-  $('team').innerHTML = `<option value="">직접 선택</option>` + cfgTeams.map((t) => `<option value="${esc(t.id)}">${esc(t.name)} — ${t.roles.map((r) => esc(cfgRoles.find((x) => x.id === r)?.name || r)).join(' · ')}</option>`).join('') + `<option value="__clear">역할 모두 해제</option>`;
+  const groups = {};
+  for (const t of cfgTeams) (groups[t.group || '기타'] ||= []).push(t);
+  const roleNames = (t) => t.roles.map((r) => cfgRoles.find((x) => x.id === r)?.name || r).join(' · ');
+  $('team').innerHTML = `<option value="">직접 선택</option>` +
+    Object.entries(groups).map(([g, list]) => `<optgroup label="${esc(g)}">${list.map((t) => `<option value="${esc(t.id)}" title="${esc(roleNames(t))}">${esc(t.name)} (${t.roles.length}명)</option>`).join('')}</optgroup>`).join('') +
+    `<option value="__clear">역할 모두 해제</option>`;
 }
+// 팀을 고르면 참가자 자리를 팀 인원수만큼 새로 구성하고 역할을 배정한다. 사용 가능한 AI 들에 돌아가며 앉힌다.
 $('team').addEventListener('change', () => {
   const v = $('team').value;
   if (!v) return;
-  const team = cfgTeams.find((t) => t.id === v);
-  selected().forEach((p, i) => {
-    const sel = document.querySelector(`select[data-role="${p.id}"]`);
-    if (sel) sel.value = v === '__clear' ? '' : team?.roles[i] || '';
-  });
   saveOpts();
+  if (v === '__clear') {
+    for (const x of seats) partState[x.uid] = { ...(partState[x.uid] || {}), role: '' };
+  } else {
+    const team = cfgTeams.find((t) => t.id === v);
+    if (team) {
+      const usable = providers.filter(ok);
+      const pool = usable.length ? usable : providers;
+      seats = [];
+      team.roles.slice(0, MAX_SEATS).forEach((role, i) => {
+        const provider = pool[i % pool.length].id;
+        const uid = newUid(provider);
+        seats.push({ uid, provider });
+        partState[uid] = { ...(partState[uid] || {}), role };
+      });
+    }
+  }
   $('team').value = '';
+  renderParticipants();
+  syncSg();
 });
 
-const MAX_SEATS = 6;
+const MAX_SEATS = 8;
 function newUid(provider) {
   if (!seats.some((x) => x.uid === provider)) return provider;
   for (let n = 2; ; n++) if (!seats.some((x) => x.uid === `${provider}-${n}`)) return `${provider}-${n}`;
