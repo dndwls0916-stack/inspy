@@ -4,7 +4,8 @@ const COLORS = { gpt: 'var(--gpt)', gemini: 'var(--gemini)', claude: 'var(--clau
 
 let providers = [];
 let mode = 'api';
-const ok = (p) => (mode === 'cli' ? p.cliAvailable : mode === 'mixed' ? p.apiConfigured || p.cliAvailable : p.apiConfigured);
+// API 전용 AI(Grok, DeepSeek 등)는 실행 방식과 상관없이 키(또는 로컬 설정)만 있으면 쓸 수 있다.
+const ok = (p) => (!p.cliSupported ? p.apiConfigured : mode === 'cli' ? p.cliAvailable : mode === 'mixed' ? p.apiConfigured || p.cliAvailable : p.apiConfigured);
 let history = []; // 이전 회의의 질문/결론 (후속 질문에 맥락으로 전달)
 let controller = null;
 let cfgSage = null;
@@ -18,7 +19,7 @@ const byId = (id) => providers.find((p) => p.id === provOf(id));
 let seats = []; // [{ uid, provider }] 회의에 앉을 자리들 (순서 = 발언/표시 순서)
 const seatNo = (uid) => { const same = seats.filter((x) => x.provider === provOf(uid)); return same.length > 1 ? ` ${same.findIndex((x) => x.uid === uid) + 1}` : ''; };
 const nameOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.name : (byId(id)?.label || id) + seatNo(id));
-const colorOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.color : COLORS[provOf(id)] || 'var(--accent)');
+const colorOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.color : COLORS[provOf(id)] || byId(id)?.color || 'var(--accent)');
 
 // --- 아주 작은 마크다운 렌더러 (HTML 이스케이프 후 변환) ---
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -241,7 +242,8 @@ function startModel(p) {
 // 선택지: API 는 서비스에서 가져온 목록(없으면 정적 목록), CLI 는 예시 목록, 혼합은 둘의 합집합
 function modelChoices(p) {
   const live = liveModels[p.id]?.ids || [];
-  const list = mode === 'cli' ? p.cliModels : mode === 'mixed' ? [...live, ...p.cliModels] : live.length ? live : p.models;
+  const m = p.cliSupported ? mode : 'api'; // API 전용 AI 는 실행 방식과 상관없이 API 목록을 쓴다
+  const list = m === 'cli' ? p.cliModels : m === 'mixed' ? [...live, ...p.cliModels] : live.length ? live : p.models;
   return [...new Set(list)];
 }
 const CUSTOM = '__custom';
@@ -249,8 +251,8 @@ function modelSelectHtml(seat, p) {
   const choices = modelChoices(p);
   const st = partState[seat.uid] || {};
   const pick = st.model && (st.model === CUSTOM || choices.includes(st.model)) ? st.model : '';
-  const want = mode === 'api' ? startModel(p) : '';
-  const autoLabel = mode === 'cli' ? '자동 (CLI 기본 모델)' : mode === 'mixed' ? '자동 (기본 모델)' : `자동 (${startModel(p)})`;
+  const em = p.cliSupported ? mode : 'api';
+  const autoLabel = em === 'cli' ? '자동 (CLI 기본 모델)' : em === 'mixed' ? '자동 (기본 모델)' : `자동 (${startModel(p)})`;
   const sel = (v) => (v === pick ? ' selected' : '');
   const opts = [`<option value=""${sel('')}>${esc(autoLabel)}</option>`, ...choices.map((m) => `<option value="${esc(m)}"${sel(m)}>${esc(m)}</option>`), `<option value="${CUSTOM}"${sel(CUSTOM)}>직접 입력…</option>`];
   return `<select data-modelsel="${seat.uid}" ${ok(p) ? '' : 'disabled'} aria-label="${esc(p.label)} 모델">${opts.join('')}</select>
@@ -339,11 +341,14 @@ function newUid(provider) {
   if (!seats.some((x) => x.uid === provider)) return provider;
   for (let n = 2; ; n++) if (!seats.some((x) => x.uid === `${provider}-${n}`)) return `${provider}-${n}`;
 }
+// 처음 자리: 기본 3 AI(GPT·Gemini·Claude) 중 쓸 수 있는 것. 하나도 없으면 쓸 수 있는 다른 AI(최대 3), 그것도 없으면 기본 3.
+const CORE = ['gpt', 'gemini', 'claude'];
 function defaultSeats() {
-  const usable = providers.filter(ok);
-  return (usable.length ? usable : providers).map((p) => ({ uid: p.id, provider: p.id }));
+  const core = providers.filter((p) => CORE.includes(p.id));
+  const pick = core.filter(ok).length ? core.filter(ok) : providers.filter(ok).slice(0, 3).length ? providers.filter(ok).slice(0, 3) : core;
+  return pick.map((p) => ({ uid: p.id, provider: p.id }));
 }
-const warnText = (p) => (mode === 'cli' ? `'${p.cliBin}' CLI 설치·로그인이 필요합니다` : mode === 'mixed' ? `.env 의 ${p.keyEnv} 또는 '${p.cliBin}' CLI 가 필요합니다` : `.env 에 ${p.keyEnv} 가 필요합니다`);
+const warnText = (p) => (!p.cliSupported ? `.env 의 ${p.envHint} 설정이 필요합니다 (이 AI 는 API 방식만 지원)` : mode === 'cli' ? `'${p.cliBin}' CLI 설치·로그인이 필요합니다` : mode === 'mixed' ? `.env 의 ${p.keyEnv} 또는 '${p.cliBin}' CLI 가 필요합니다` : `.env 에 ${p.keyEnv} 가 필요합니다`);
 function renderParticipants(skipSave = false) {
   const box = $('participants');
   if (!seats.length) seats = defaultSeats();
@@ -376,7 +381,9 @@ function renderAddSeat() {
   const wrap = $('addSeat');
   wrap.hidden = seats.length >= MAX_SEATS;
   const sel = $('addSeatSel');
-  sel.innerHTML = providers.map((p) => `<option value="${p.id}">${esc(p.label)}${ok(p) ? '' : ' (설정 필요)'}</option>`).join('');
+  const opt = (p) => `<option value="${p.id}">${esc(p.label)}${ok(p) ? '' : ' (설정 필요)'}</option>`;
+  const core = providers.filter((p) => !p.extra), extra = providers.filter((p) => p.extra);
+  sel.innerHTML = core.map(opt).join('') + (extra.length ? `<optgroup label="그 밖의 AI (API)">${extra.map(opt).join('')}</optgroup>` : '');
 }
 $('addSeatBtn').addEventListener('click', () => {
   if (seats.length >= MAX_SEATS) return;
@@ -425,7 +432,8 @@ const seatHtml = (id, p, extra = '') => `<div class="seat idle ${extra}" data-se
   <div class="seat-title">${esc(p.title)}</div><div class="seat-state">${STATE.idle}</div></div>`;
 function renderStage(ids) {
   const stage = $('stage');
-  stage.hidden = !sg || !ids.length;
+  // 군의 장면은 캐릭터가 있는 기본 3 AI 만 앉힐 수 있다(다른 AI 가 있으면 보여 주지 않는다)
+  stage.hidden = !sg || !ids.length || ids.some((id) => !byId(id)?.persona);
   if (stage.hidden) return;
   stage.innerHTML = `<div class="scene">
     <div class="screen" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
@@ -503,6 +511,7 @@ function handle(ev, ctx) {
       caption(ev.who, ev.text);
       const el = pending[key(ev.round, ev.who)] || add('', provOf(ev.who));
       el.className = 'msg ' + provOf(ev.who);
+      el.style.borderLeftColor = colorOf(ev.who); // 기본 3 AI 외의 AI 도 색으로 구분
       el.innerHTML = head(ev.who, ev.label, `${roleBadge(ev)}${effortBadge(ev)}<small class="model" title="${ev.requested && ev.requested !== ev.model ? `선택한 ${esc(ev.requested)} 는 사용할 수 없어 대체했습니다` : ''}">${esc(ev.model || 'CLI 기본')}${ev.requested && ev.requested !== ev.model ? ` ← ${esc(ev.requested)} 대체` : ''}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`;
       break;
     }
@@ -688,7 +697,7 @@ function applyTheme() {
   if (providers.length) { $('moderator').value = ''; renderParticipants(); }
 }
 // 삼국지 모드는 유비·관우·장비(AI 종류별 한 자리)만 있어서, 같은 AI 를 더 앉히면 쓸 수 없다.
-const sgAllowed = () => seats.every((x) => x.uid === x.provider);
+const sgAllowed = () => seats.every((x) => x.uid === x.provider && byId(x.uid)?.persona);
 function syncSg() {
   const allowed = sgAllowed();
   $('sg').disabled = !allowed;

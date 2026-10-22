@@ -196,6 +196,26 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx</pre></li>
   </ol>
   <div class="box warn"><b class="t">호출이 많이 늘어납니다</b>3명이 최대 6라운드까지 가면 AI 호출이 <b>약 25번</b>(발언 18 + 판정 5 + 결론 1 + 제갈량 1)까지 늘 수 있고, 라운드당 몇 분이 걸릴 수 있습니다. API 방식은 요금이, CLI 방식은 구독 사용량이 더 듭니다. 처음에는 <b>"합의까지(최대 4)"</b>로 시험하고, 무료 Gemini 키는 분당 요청 제한(429)에 걸릴 수 있으니 참가자를 줄이는 것도 방법입니다. 판정도 AI의 판단이라 <b>100% 정확하지는 않습니다</b>.</div>
 
+  <h3>더 많은 AI 연결하기 (Grok · DeepSeek · Llama 등)</h3>
+  <p>GPT·Gemini·Claude 말고도 참가자로 앉힐 수 있습니다. <code>.env</code>에 키를 넣고 다시 실행하면 <b>+ 참가자 추가</b> 목록의 <b>"그 밖의 AI"</b>에서 고를 수 있고, 모델은 카드의 드롭다운(서비스가 알려 주는 최신 목록)에서 고릅니다. 역할·생각 깊이·사회자 지정은 그대로 쓸 수 있고, 같은 AI를 여러 자리에 앉히는 것도 됩니다.</p>
+  <table>
+    <tr><th>AI</th><th><code>.env</code> 항목</th><th>특징</th></tr>
+    <tr><td>Grok (xAI)</td><td><code>XAI_API_KEY</code></td><td>생각 깊이 설정 지원</td></tr>
+    <tr><td>DeepSeek</td><td><code>DEEPSEEK_API_KEY</code></td><td>저렴한 편</td></tr>
+    <tr><td>Mistral</td><td><code>MISTRAL_API_KEY</code></td><td>유럽 AI</td></tr>
+    <tr><td>Perplexity</td><td><code>PERPLEXITY_API_KEY</code></td><td><b>웹 검색 내장</b> — 최신 정보·시세가 필요한 안건에 유용</td></tr>
+    <tr><td>Groq</td><td><code>GROQ_API_KEY</code></td><td>Llama·Qwen 등 오픈 모델을 빠르게</td></tr>
+    <tr><td>OpenRouter</td><td><code>OPENROUTER_API_KEY</code></td><td>키 하나로 <b>수백 개 모델</b>(드롭다운에서 선택)</td></tr>
+    <tr><td>Ollama (내 PC)</td><td><code>OLLAMA_MODEL</code> (또는 <code>OLLAMA_BASE_URL</code>)</td><td>무료·로컬. 미리 <code>ollama pull 모델이름</code> 필요. 내용이 외부로 나가지 않음</td></tr>
+    <tr><td>사용자 지정</td><td><code>CUSTOM_BASE_URL</code> + <code>CUSTOM_MODEL</code> (+ <code>CUSTOM_API_KEY</code>, <code>CUSTOM_LABEL</code>)</td><td>OpenAI 호환 서버(사내 서버, LM Studio, vLLM 등)</td></tr>
+  </table>
+  <ul>
+    <li>이 AI들은 <b>API 방식만</b> 지원합니다. 실행 방식을 CLI나 혼합으로 두어도 이 AI들은 API로 호출됩니다(키가 없으면 카드에 "설정이 필요합니다"가 표시되고 그 자리는 건너뜁니다).</li>
+    <li><b>생각 깊이</b>는 Grok만 적용되고 나머지는 "(미적용)"으로 표시됩니다. <b>삼국지 모드</b>는 기본 3 AI 전용이라 이 AI를 앉히면 자동으로 꺼집니다.</li>
+    <li>모델 이름은 서비스가 자주 바꿉니다. 목록을 못 가져오면 기본 후보만 보이니 "직접 입력…"으로 적으세요. 처음 쓰는 AI는 <b>짧은 질문 하나로 먼저 확인</b>해 보세요. 이 프로그램은 이 서비스들의 실제 응답을 직접 확인하지 못한 채 공식 형식(OpenAI 호환)에 맞춰 만들었습니다.</li>
+    <li>질문과 첨부 내용은 선택한 AI 회사의 서버로 전송됩니다(Ollama·내 서버 제외). 회사마다 데이터 정책과 요금이 다릅니다.</li>
+  </ul>
+
   <h3>비용 안전장치와 회의록</h3>
   <ul>
     <li><b>예상 호출 수</b>: 시작 버튼 위에 "예상 AI 호출 7회 · 입력 약 9.8천 토큰"처럼 표시됩니다. 호출 수는 정확한 계산이고 토큰은 글자 수로 어림한 값입니다(자동 대체·재시도·생각 토큰은 반영하지 못합니다). 합의 모드는 "11~120회"처럼 범위로 나옵니다. 첨부는 모든 호출에 다시 들어가므로 입력 토큰이 크게 늘어납니다.</li>

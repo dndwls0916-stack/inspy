@@ -225,3 +225,4 @@ label.check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px;
 label.check input { width: auto; margin-top: 3px; }
 .minutes-note { font-size: 12px; color: var(--muted); padding: 4px 2px; word-break: break-all; }
 .budget-card { border-left: 4px solid #b45309; background: color-mix(in srgb, #b45309 8%, var(--bg)); }
+.msg[style*="border-left-color"] { border-left-width: 4px; }

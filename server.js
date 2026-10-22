@@ -104,7 +104,11 @@ function config() {
       keyEnv: p.keyEnv,
       apiConfigured: hasApiKey(id),
       cliAvailable: cliAvailable(id),
-      cliBin: p.cli.bin,
+      cliBin: p.cli ? p.cli.bin : null,
+      cliSupported: Boolean(p.cli),
+      color: p.color || null,
+      envHint: p.envHint || p.keyEnv,
+      extra: Boolean(p.compat),
       persona: PERSONAS[id],
       model: defaultModel(id),
       modelPinned: Boolean(pinnedModel(id)),
@@ -189,10 +193,15 @@ async function handleCouncil(req, res) {
   const missing = participants.filter((p) => !isConfigured(p.provider, mode)).filter((p, i, a) => a.findIndex((q) => q.provider === p.provider) === i);
   if (missing.length) {
     const names = missing.map((p) => PROVIDERS[p.provider]);
+    const hint = (n) =>
+      !n.cli ? `${n.label}(${n.envHint || n.keyEnv} 설정 필요. 이 AI 는 API 방식만 지원)`
+      : mode === 'cli' ? `${n.cli.bin} CLI`
+      : mode === 'mixed' ? `${n.label}(${n.keyEnv} 또는 ${n.cli.bin} CLI)`
+      : n.keyEnv;
     const error =
-      mode === 'cli' ? `CLI가 설치되어 있지 않습니다: ${names.map((n) => `${n.cli.bin} CLI`).join(', ')}`
-      : mode === 'mixed' ? `API 키도 CLI도 없습니다: ${names.map((n) => `${n.label}(${n.keyEnv} 또는 ${n.cli.bin} CLI)`).join(', ')}`
-      : `.env 에 키가 없습니다: ${names.map((n) => n.keyEnv).join(', ')}`;
+      mode === 'cli' ? `CLI가 설치되어 있지 않습니다: ${names.map(hint).join(', ')}`
+      : mode === 'mixed' ? `API 키도 CLI도 없습니다: ${names.map(hint).join(', ')}`
+      : `.env 에 키가 없습니다: ${names.map(hint).join(', ')}`;
     return sendJson(res, 400, { error });
   }
 
