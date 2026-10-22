@@ -5,7 +5,7 @@ const { server } = require('../server');
 const { parseVerdict } = require('../lib/council');
 
 // --- 판정 응답 해석: 형식이 깨져도 "합의"로 오인하지 않는다 ---
-assert.deepEqual(parseVerdict('{"consensus": true, "summary": "같음", "disagreements": [], "stalled": false}'), { reached: true, summary: '같음', disagreements: [], stalled: false });
+assert.deepEqual(parseVerdict('{"consensus": true, "summary": "같음", "disagreements": [], "stalled": false}'), { reached: true, summary: '같음', disagreements: [], positions: [], stalled: false });
 assert.equal(parseVerdict('```json\n{"consensus": true, "summary": "x"}\n```').reached, true, '코드블록으로 감싸도 해석');
 assert.equal(parseVerdict('판정 결과입니다. {"consensus": false, "disagreements": ["가", "나"]} 끝.').disagreements.length, 2, '앞뒤 설명이 붙어도 해석');
 assert.equal(parseVerdict('합의되었습니다').reached, false, 'JSON 이 아니면 합의 아님');
@@ -43,7 +43,7 @@ server.listen(0, '127.0.0.1', async () => {
     assert.equal(cs[0].round, 2, '1라운드는 독립 의견이라 판정하지 않음');
     assert(cs[0].disagreements.length > 0, '남은 쟁점 전달');
     const fin = ev.find((e) => e.type === 'final');
-    assert.deepEqual(fin.consensus, { reached: true, round: 3, reason: '' });
+    assert.deepEqual(fin.consensus, { reached: true, round: 3, reason: '', partial: false, missing: [] });
     assert.equal(ev.at(-1).type, 'done');
 
     // 2) 끝까지 합의 못함: 상한(3)에서 멈추고 합의 못함으로 표시
