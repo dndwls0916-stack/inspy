@@ -28,6 +28,13 @@
       <label class="field">팀 구성 <small>자리와 역할을 한 번에</small>
         <select id="team"></select>
       </label>
+      <label class="field">AI 배정 <small>팀을 고를 때 자리마다 앉힐 AI</small>
+        <select id="assign"></select>
+      </label>
+      <div id="halfRow" class="half-row" hidden>
+        <select id="halfA" aria-label="앞쪽 절반의 AI"></select><span>+</span><select id="halfB" aria-label="뒤쪽 절반의 AI"></select>
+      </div>
+      <button id="reassign" class="ghost" type="button" title="지금 참가자들의 역할은 그대로 두고 AI 만 위 방식으로 다시 앉힙니다">지금 참가자에 AI 다시 배정</button>
       <div id="participants"></div>
       <div id="addSeat" class="add-seat">
         <select id="addSeatSel" aria-label="추가할 AI"></select>

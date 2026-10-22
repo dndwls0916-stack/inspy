@@ -310,7 +310,7 @@ function renderTeams() {
     Object.entries(groups).map(([g, list]) => `<optgroup label="${esc(g)}">${list.map((t) => `<option value="${esc(t.id)}" title="${esc(roleNames(t))}">${esc(t.name)} (${t.roles.length}명)</option>`).join('')}</optgroup>`).join('') +
     `<option value="__clear">역할 모두 해제</option>`;
 }
-// 팀을 고르면 참가자 자리를 팀 인원수만큼 새로 구성하고 역할을 배정한다. 사용 가능한 AI 들에 돌아가며 앉힌다.
+// 팀을 고르면 참가자 자리를 팀 인원수만큼 새로 구성하고 역할을 배정한다. 각 자리에 앉힐 AI 는 "AI 배정"에서 정한 방식을 따른다.
 $('team').addEventListener('change', () => {
   const v = $('team').value;
   if (!v) return;
@@ -320,15 +320,18 @@ $('team').addEventListener('change', () => {
   } else {
     const team = cfgTeams.find((t) => t.id === v);
     if (team) {
-      const usable = providers.filter(ok);
-      const pool = usable.length ? usable : providers;
+      const roles = team.roles.slice(0, MAX_SEATS);
+      const list = assignProviders(roles.length);
+      const next = {};
       seats = [];
-      team.roles.slice(0, MAX_SEATS).forEach((role, i) => {
-        const provider = pool[i % pool.length].id;
+      roles.forEach((role, i) => {
+        const provider = list[i];
         const uid = newUid(provider);
         seats.push({ uid, provider });
-        partState[uid] = { ...(partState[uid] || {}), role };
+        next[uid] = { ...(partState[uid] || {}), role };
       });
+      for (const k of Object.keys(partState)) delete partState[k];
+      Object.assign(partState, next);
     }
   }
   $('team').value = '';
@@ -336,13 +339,78 @@ $('team').addEventListener('change', () => {
   syncSg();
 });
 
+// --- AI 배정: 팀을 고를 때(또는 "다시 배정") 자리마다 어떤 AI 를 앉힐지. 전부 한 AI / 반반 / 돌아가며 ---
+const CORE = ['gpt', 'gemini', 'claude'];
+const assignPool = () => {
+  const core = providers.filter((p) => CORE.includes(p.id) && ok(p));
+  return core.length ? core : providers.filter(ok).length ? providers.filter(ok) : providers;
+};
+function renderAssign() {
+  const usable = providers.filter(ok);
+  const prev = { a: $('assign').value, ha: $('halfA').value, hb: $('halfB').value };
+  const pool = assignPool();
+  $('assign').innerHTML = `<option value="rr">골고루 돌아가며 (${esc(pool.map((p) => p.label).join('·'))})</option>` +
+    usable.map((p) => `<option value="all:${p.id}">전부 ${esc(p.label)}</option>`).join('') +
+    (usable.length >= 2 ? '<option value="half">반반 (두 AI 선택)</option>' : '');
+  if ([...$('assign').options].some((o) => o.value === prev.a)) $('assign').value = prev.a;
+  const opts = usable.map((p) => `<option value="${p.id}">${esc(p.label)}</option>`).join('');
+  $('halfA').innerHTML = opts;
+  $('halfB').innerHTML = opts;
+  $('halfA').value = usable.some((p) => p.id === prev.ha) ? prev.ha : usable[0]?.id || '';
+  $('halfB').value = usable.some((p) => p.id === prev.hb) ? prev.hb : (usable[1] || usable[0])?.id || '';
+  $('halfRow').hidden = $('assign').value !== 'half';
+}
+function assignProviders(n) {
+  const v = $('assign').value;
+  if (v.startsWith('all:')) return Array(n).fill(v.slice(4));
+  if (v === 'half') {
+    const half = Math.ceil(n / 2);
+    return Array.from({ length: n }, (_, i) => (i < half ? $('halfA').value : $('halfB').value));
+  }
+  const pool = assignPool();
+  return Array.from({ length: n }, (_, i) => pool[i % pool.length].id);
+}
+$('assign').addEventListener('change', () => { $('halfRow').hidden = $('assign').value !== 'half'; });
+// 지금 참가자들의 역할·생각 깊이는 그대로 두고 AI 만 다시 앉힌다.
+$('reassign').addEventListener('click', () => {
+  saveOpts();
+  const list = assignProviders(seats.length);
+  const old = seats;
+  const next = {};
+  seats = [];
+  old.forEach((s0, i) => {
+    const provider = list[i];
+    const uid = newUid(provider);
+    seats.push({ uid, provider });
+    const st = partState[s0.uid] || {};
+    next[uid] = { role: st.role, effort: st.effort, model: provider === s0.provider ? st.model : '', custom: provider === s0.provider ? st.custom : '' };
+  });
+  for (const k of Object.keys(partState)) delete partState[k];
+  Object.assign(partState, next);
+  renderParticipants(true);
+  syncSg();
+});
+// 자리 하나의 AI 를 바꾼다(역할·생각 깊이는 유지, 모델은 AI 가 달라지므로 자동으로).
+function changeProvider(uid, provider) {
+  saveOpts();
+  const idx = seats.findIndex((x) => x.uid === uid);
+  if (idx < 0) return;
+  const st = partState[uid] || {};
+  seats.splice(idx, 1);
+  const nu = newUid(provider);
+  seats.splice(idx, 0, { uid: nu, provider });
+  delete partState[uid];
+  partState[nu] = { role: st.role, effort: st.effort, model: '', custom: '' };
+  renderParticipants(true);
+  syncSg();
+}
+
 const MAX_SEATS = 8;
 function newUid(provider) {
   if (!seats.some((x) => x.uid === provider)) return provider;
   for (let n = 2; ; n++) if (!seats.some((x) => x.uid === `${provider}-${n}`)) return `${provider}-${n}`;
 }
 // 처음 자리: 기본 3 AI(GPT·Gemini·Claude) 중 쓸 수 있는 것. 하나도 없으면 쓸 수 있는 다른 AI(최대 3), 그것도 없으면 기본 3.
-const CORE = ['gpt', 'gemini', 'claude'];
 function defaultSeats() {
   const core = providers.filter((p) => CORE.includes(p.id));
   const pick = core.filter(ok).length ? core.filter(ok) : providers.filter(ok).slice(0, 3).length ? providers.filter(ok).slice(0, 3) : core;
@@ -362,6 +430,7 @@ function renderParticipants(skipSave = false) {
     card.className = 'p-card' + (ok(p) ? '' : ' off');
     card.innerHTML = `
       <div class="p-head"><span class="dot" style="background:${colorOf(seat.uid)}"></span>${esc(nameOf(seat.uid))}<span class="vendor">${sg ? p.label + ' · ' : ''}${p.vendor}</span>
+        <select class="seat-ai" data-ai="${seat.uid}" aria-label="${esc(nameOf(seat.uid))} 의 AI" title="이 자리의 AI 바꾸기">${providers.map((q) => `<option value="${q.id}" ${q.id === seat.provider ? 'selected' : ''}>${esc(q.label)}${ok(q) ? '' : ' (설정 필요)'}</option>`).join('')}</select>
         ${seats.length > 1 ? `<button type="button" class="seat-rm" data-rm="${seat.uid}" aria-label="${esc(nameOf(seat.uid))} 빼기" title="이 참가자 빼기">×</button>` : ''}</div>
       ${modelSelectHtml(seat, p)}
       ${optsHtml(seat, p)}
@@ -370,8 +439,10 @@ function renderParticipants(skipSave = false) {
   }
   box.querySelectorAll('select[data-role], select[data-effort], select[data-modelsel]').forEach((x) => x.addEventListener('change', saveOpts));
   box.querySelectorAll('input[data-model]').forEach((x) => x.addEventListener('input', saveOpts));
+  box.querySelectorAll('select[data-ai]').forEach((x) => x.addEventListener('change', () => changeProvider(x.dataset.ai, x.value)));
   box.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => { saveOpts(); seats = seats.filter((x) => x.uid !== b.dataset.rm); delete partState[b.dataset.rm]; renderParticipants(); syncSg(); }));
   renderAddSeat();
+  renderAssign();
   wireModelSelects();
   renderModerator();
   scheduleEstimate();
