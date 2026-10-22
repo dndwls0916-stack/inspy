@@ -23,7 +23,7 @@ server.listen(0, '127.0.0.1', async () => {
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
     const cfg = await (await fetch(`${base}/api/config`)).json();
-    assert.equal(cfg.providers.length, 3);
+    assert(['gpt', 'gemini', 'claude'].every((id) => cfg.providers.some((p) => p.id === id)) && cfg.providers.length >= 3, '기본 3 AI 는 항상 있다(다른 AI 는 추가로 제공)');
 
     const bad = await fetch(`${base}/api/council`, { method: 'POST', body: JSON.stringify({ question: '' }) });
     assert.equal(bad.status, 400);
@@ -47,7 +47,8 @@ server.listen(0, '127.0.0.1', async () => {
     assert(sg.findIndex((e) => e.type === 'final') < sg.findIndex((e) => e.type === 'sage'), '결단 뒤에 한마디');
     assert(!events.some((e) => e.type === 'sage'), '일반 모드에는 제갈량 없음');
     assert(cfg.sage.name === '제갈량');
-    assert(cfg.providers.every((p) => p.persona?.name), '캐릭터 정보');
+    assert(cfg.providers.filter((p) => ['gpt', 'gemini', 'claude'].includes(p.id)).every((p) => p.persona?.name), '기본 3 AI 의 캐릭터 정보');
+    assert(cfg.providers.filter((p) => p.extra).every((p) => !p.persona), '다른 AI 에는 삼국지 캐릭터가 없다');
 
     assert.equal((await fetch(`${base}/`)).status, 200);
     assert.equal((await fetch(`${base}/../server.js`)).status, 404);
