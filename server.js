@@ -31,6 +31,8 @@ const autoMode = () => {
   return anyKey && anyCli ? 'mixed' : anyKey ? 'api' : anyCli ? 'cli' : 'api';
 };
 const MAX_ATTACH_FILES = 30;
+const MAX_PARTICIPANTS = 8;
+const UNLIMITED_ROUNDS = 30; // '결론 날 때까지'의 안전 상한(무한 루프/비용 폭주 방지). 평행선이면 그보다 먼저 멈춘다
 const MAX_ATTACH_CHARS = 150_000;
 const PUBLIC = path.join(__dirname, 'public');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.css': 'text/css; charset=utf-8' };
@@ -139,18 +141,20 @@ async function handleCouncil(req, res) {
 
   const mode = MODES.includes(body.mode) ? body.mode : 'api';
   const participants = (Array.isArray(body.participants) ? body.participants : [])
-    .filter((p, i, a) => PROVIDERS[p?.id] && a.findIndex((q) => q.id === p.id) === i)
+    // 참가자 id 는 'gpt' 또는 같은 AI 를 여러 자리에 앉힐 때의 'gpt-2' 형태. 앞부분이 AI 종류다.
+    .filter((p, i, a) => /^[a-z]+(-\d{1,2})?$/.test(String(p?.id)) && PROVIDERS[String(p.id).split('-')[0]] && a.findIndex((q) => q.id === p.id) === i)
+    .slice(0, MAX_PARTICIPANTS)
     .map((p) => {
       const typed = String(p.model || '').trim().slice(0, 100);
       // CLI 모드에서 모델을 비우면 CLI 자체 기본 모델을 쓴다.
       const role = ROLES[p.role] ? p.role : '';
       const effort = EFFORTS.includes(p.effort) ? p.effort : ''; // '' = 자동(서비스 기본)
-      return { id: p.id, model: typed, role, effort }; // 비우면 호출 시점에 자동 결정(API: 서비스 목록의 추천, CLI: CLI 기본)
+      return { id: p.id, provider: p.id.split('-')[0], model: typed, role, effort }; // 비우면 호출 시점에 자동 결정(API: 서비스 목록의 추천, CLI: CLI 기본)
     });
   if (!participants.length) return sendJson(res, 400, { error: '참가할 AI를 한 명 이상 선택하세요' });
-  const missing = participants.filter((p) => !isConfigured(p.id, mode));
+  const missing = participants.filter((p) => !isConfigured(p.provider, mode)).filter((p, i, a) => a.findIndex((q) => q.provider === p.provider) === i);
   if (missing.length) {
-    const names = missing.map((p) => PROVIDERS[p.id]);
+    const names = missing.map((p) => PROVIDERS[p.provider]);
     const error =
       mode === 'cli' ? `CLI가 설치되어 있지 않습니다: ${names.map((n) => `${n.cli.bin} CLI`).join(', ')}`
       : mode === 'mixed' ? `API 키도 CLI도 없습니다: ${names.map((n) => `${n.label}(${n.keyEnv} 또는 ${n.cli.bin} CLI)`).join(', ')}`
@@ -159,7 +163,8 @@ async function handleCouncil(req, res) {
   }
 
   const consensus = body.consensus === true;
-  const maxRounds = Math.min(8, Math.max(2, Number(body.maxRounds) || 5)); // 합의 모드의 상한(비용 보호)
+  const unlimited = consensus && body.unlimited === true;
+  const maxRounds = unlimited ? UNLIMITED_ROUNDS : Math.min(8, Math.max(2, Number(body.maxRounds) || 5)); // 합의 모드의 상한(비용 보호)
   // 첨부: 브라우저가 글자로 뽑아 보낸다. 개수/용량을 서버에서도 제한한다(모든 AI 호출에 들어가므로 비용 보호).
   const rawAtt = Array.isArray(body.attachments) ? body.attachments : [];
   if (rawAtt.length > MAX_ATTACH_FILES) return sendJson(res, 400, { error: `첨부는 최대 ${MAX_ATTACH_FILES}개까지입니다` });
@@ -180,7 +185,7 @@ async function handleCouncil(req, res) {
   const emit = (ev) => !res.writableEnded && res.write(`data: ${JSON.stringify(ev)}\n\n`);
 
   try {
-    await runCouncil({ question, participants, attachments, rounds, consensus, maxRounds, moderator, history, mode, persona: body.persona === true, emit, signal: ac.signal });
+    await runCouncil({ question, participants, attachments, rounds, consensus, unlimited, maxRounds, moderator, history, mode, persona: body.persona === true, emit, signal: ac.signal });
   } catch (err) {
     emit({ type: 'error', error: String(err.message || err) });
   }

@@ -9,11 +9,16 @@ let history = []; // 이전 회의의 질문/결론 (후속 질문에 맥락으�
 let controller = null;
 let cfgSage = null;
 let liveModels = {}; // 서비스에서 가져온 모델 목록 { gpt: {ids, pick}, ... }
-let sg = false; // 삼국지 모드 (기본은 꺼짐 — 직업 역할로 회의)
-try { sg = localStorage.getItem('sg') === '1'; } catch {}
-const byId = (id) => providers.find((p) => p.id === id);
-const nameOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.name : byId(id)?.label || id);
-const colorOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.color : COLORS[id] || 'var(--accent)');
+let sgWanted = false; // 삼국지 모드 선택 (기본은 꺼짐 — 직업 역할로 회의)
+try { sgWanted = localStorage.getItem('sg') === '1'; } catch {}
+let sg = sgWanted; // 실제 적용: 삼국지 모드는 AI 한 종류에 한 자리씩(최대 3명)일 때만 가능
+// 참가자(자리) id: 'gpt' 또는 같은 AI 를 더 앉힌 'gpt-2'. 앞부분이 AI 종류.
+const provOf = (id) => String(id).split('-')[0];
+const byId = (id) => providers.find((p) => p.id === provOf(id));
+let seats = []; // [{ uid, provider }] 회의에 앉을 자리들 (순서 = 발언/표시 순서)
+const seatNo = (uid) => { const same = seats.filter((x) => x.provider === provOf(uid)); return same.length > 1 ? ` ${same.findIndex((x) => x.uid === uid) + 1}` : ''; };
+const nameOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.name : (byId(id)?.label || id) + seatNo(id));
+const colorOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.color : COLORS[provOf(id)] || 'var(--accent)');
 
 // --- 아주 작은 마크다운 렌더러 (HTML 이스케이프 후 변환) ---
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -239,13 +244,16 @@ function modelChoices(p) {
   return [...new Set(list)];
 }
 const CUSTOM = '__custom';
-function modelSelectHtml(p) {
+function modelSelectHtml(seat, p) {
   const choices = modelChoices(p);
+  const st = partState[seat.uid] || {};
+  const pick = st.model && (st.model === CUSTOM || choices.includes(st.model)) ? st.model : '';
   const want = mode === 'api' ? startModel(p) : '';
   const autoLabel = mode === 'cli' ? '자동 (CLI 기본 모델)' : mode === 'mixed' ? '자동 (기본 모델)' : `자동 (${startModel(p)})`;
-  const opts = [`<option value="">${esc(autoLabel)}</option>`, ...choices.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`), `<option value="${CUSTOM}">직접 입력…</option>`];
-  return `<select data-modelsel="${p.id}" ${ok(p) ? '' : 'disabled'} aria-label="${esc(p.label)} 모델">${opts.join('')}</select>
-      <input type="text" data-model="${p.id}" hidden placeholder="모델 이름 직접 입력" aria-label="${esc(p.label)} 모델 직접 입력">`;
+  const sel = (v) => (v === pick ? ' selected' : '');
+  const opts = [`<option value=""${sel('')}>${esc(autoLabel)}</option>`, ...choices.map((m) => `<option value="${esc(m)}"${sel(m)}>${esc(m)}</option>`), `<option value="${CUSTOM}"${sel(CUSTOM)}>직접 입력…</option>`];
+  return `<select data-modelsel="${seat.uid}" ${ok(p) ? '' : 'disabled'} aria-label="${esc(p.label)} 모델">${opts.join('')}</select>
+      <input type="text" data-model="${seat.uid}" ${pick === CUSTOM ? '' : 'hidden'} value="${esc(pick === CUSTOM ? st.custom || '' : '')}" placeholder="모델 이름 직접 입력" aria-label="${esc(p.label)} 모델 직접 입력">`;
 }
 // 선택한 모델 값 ('' = 자동)
 function modelValue(id) {
@@ -271,18 +279,22 @@ function roleOptions(selected) {
   for (const r of cfgRoles) (groups[r.group] ||= []).push(r);
   return `<option value="">역할 없음</option>` + Object.entries(groups).map(([g, list]) => `<optgroup label="${esc(g)}">${list.map((r) => `<option value="${esc(r.id)}" title="${esc(r.view)}" ${r.id === selected ? 'selected' : ''}>${esc(r.icon)} ${esc(r.name)}</option>`).join('')}</optgroup>`).join('');
 }
-function optsHtml(p) {
-  const st = partState[p.id] || {};
+function optsHtml(seat, p) {
+  const st = partState[seat.uid] || {};
+  const uid = seat.uid;
   return `<div class="p-opts">
-      <select data-role="${p.id}" ${ok(p) ? '' : 'disabled'} aria-label="${esc(p.label)} 역할">${roleOptions(st.role)}</select>
-      <select data-effort="${p.id}" ${ok(p) ? '' : 'disabled'} aria-label="${esc(p.label)} 생각 깊이">
+      <select data-role="${uid}" ${ok(p) ? '' : 'disabled'} aria-label="${esc(p.label)} 역할">${roleOptions(st.role)}</select>
+      <select data-effort="${uid}" ${ok(p) ? '' : 'disabled'} aria-label="${esc(p.label)} 생각 깊이">
         <option value="">생각 깊이: 자동</option>${['low', 'medium', 'high'].map((e) => `<option value="${e}" ${st.effort === e ? 'selected' : ''}>생각 깊이: ${EFFORT_LABEL[e]}</option>`).join('')}
       </select></div>`;
 }
 const roleOf = (id) => document.querySelector(`select[data-role="${id}"]`)?.value || '';
 const effortOf = (id) => document.querySelector(`select[data-effort="${id}"]`)?.value || '';
 function saveOpts() {
-  for (const p of providers) partState[p.id] = { role: roleOf(p.id), effort: effortOf(p.id) };
+  for (const x of seats) {
+    const ms = document.querySelector(`select[data-modelsel="${x.uid}"]`);
+    partState[x.uid] = { role: roleOf(x.uid), effort: effortOf(x.uid), model: ms ? ms.value : '', custom: document.querySelector(`input[data-model="${x.uid}"]`)?.value || '' };
+  }
 }
 const roleBadge = (ev) => (ev.roleName ? `<span class="role-badge">${esc((cfgRoles.find((r) => r.id === ev.role) || {}).icon || '')} ${esc(ev.roleName)}</span>` : '');
 const effortBadge = (ev) => (ev.effort ? `<span class="effort-badge ${ev.effortApplied ? '' : 'off'}" title="${ev.effortApplied ? '이 호출에 적용됨' : '이 모델/방식은 생각 깊이 설정을 받지 않아 기본값으로 실행했습니다'}">깊이 ${EFFORT_LABEL[ev.effort]}${ev.effortApplied ? '' : ' (미적용)'}</span>` : '');
@@ -302,26 +314,56 @@ $('team').addEventListener('change', () => {
   $('team').value = '';
 });
 
+const MAX_SEATS = 6;
+function newUid(provider) {
+  if (!seats.some((x) => x.uid === provider)) return provider;
+  for (let n = 2; ; n++) if (!seats.some((x) => x.uid === `${provider}-${n}`)) return `${provider}-${n}`;
+}
+function defaultSeats() {
+  const usable = providers.filter(ok);
+  return (usable.length ? usable : providers).map((p) => ({ uid: p.id, provider: p.id }));
+}
+const warnText = (p) => (mode === 'cli' ? `'${p.cliBin}' CLI 설치·로그인이 필요합니다` : mode === 'mixed' ? `.env 의 ${p.keyEnv} 또는 '${p.cliBin}' CLI 가 필요합니다` : `.env 에 ${p.keyEnv} 가 필요합니다`);
 function renderParticipants() {
   const box = $('participants');
+  if (!seats.length) seats = defaultSeats();
   box.innerHTML = '';
-  for (const p of providers) {
+  for (const seat of seats) {
+    const p = byId(seat.uid);
+    if (!p) continue;
     const card = document.createElement('div');
     card.className = 'p-card' + (ok(p) ? '' : ' off');
     card.innerHTML = `
-      <div class="p-head"><span class="dot" style="background:${colorOf(p.id)}"></span>${esc(nameOf(p.id))}<span class="vendor">${sg ? p.label + ' · ' : ''}${p.vendor}</span>
-        <label><input type="checkbox" data-id="${p.id}" ${ok(p) ? 'checked' : 'disabled'}> 참가</label></div>
-      ${modelSelectHtml(p)}
-      ${optsHtml(p)}
-      ${ok(p) ? '' : `<div class="p-warn">${mode === 'cli' ? `'${p.cliBin}' CLI 설치·로그인이 필요합니다` : mode === 'mixed' ? `.env 의 ${p.keyEnv} 또는 '${p.cliBin}' CLI 가 필요합니다` : `.env 에 ${p.keyEnv} 가 필요합니다`}</div>`}`;
+      <div class="p-head"><span class="dot" style="background:${colorOf(seat.uid)}"></span>${esc(nameOf(seat.uid))}<span class="vendor">${sg ? p.label + ' · ' : ''}${p.vendor}</span>
+        ${seats.length > 1 ? `<button type="button" class="seat-rm" data-rm="${seat.uid}" aria-label="${esc(nameOf(seat.uid))} 빼기" title="이 참가자 빼기">×</button>` : ''}</div>
+      ${modelSelectHtml(seat, p)}
+      ${optsHtml(seat, p)}
+      ${ok(p) ? '' : `<div class="p-warn">${warnText(p)} (이 자리는 건너뜁니다)</div>`}`;
     box.appendChild(card);
   }
-  box.querySelectorAll('input[type=checkbox]').forEach((c) => c.addEventListener('change', () => { c.closest('.p-card').classList.toggle('off', !c.checked); renderModerator(); }));
-  box.querySelectorAll('select[data-role], select[data-effort]').forEach((x) => x.addEventListener('change', saveOpts));
+  box.querySelectorAll('select[data-role], select[data-effort], select[data-modelsel]').forEach((x) => x.addEventListener('change', saveOpts));
+  box.querySelectorAll('input[data-model]').forEach((x) => x.addEventListener('input', saveOpts));
+  box.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => { saveOpts(); seats = seats.filter((x) => x.uid !== b.dataset.rm); delete partState[b.dataset.rm]; renderParticipants(); syncSg(); }));
+  renderAddSeat();
   wireModelSelects();
   renderModerator();
 }
-const selected = () => providers.filter((p) => document.querySelector(`input[data-id="${p.id}"]`)?.checked);
+// "+ 참가자 추가": 같은 AI 를 여러 자리에 앉힐 수도 있다(예: Claude 변호사 + Claude 비판자)
+function renderAddSeat() {
+  const wrap = $('addSeat');
+  wrap.hidden = seats.length >= MAX_SEATS;
+  const sel = $('addSeatSel');
+  sel.innerHTML = providers.map((p) => `<option value="${p.id}">${esc(p.label)}${ok(p) ? '' : ' (설정 필요)'}</option>`).join('');
+}
+$('addSeatBtn').addEventListener('click', () => {
+  if (seats.length >= MAX_SEATS) return;
+  saveOpts();
+  const provider = $('addSeatSel').value;
+  seats.push({ uid: newUid(provider), provider });
+  renderParticipants();
+  syncSg();
+});
+const selected = () => seats.filter((x) => ok(byId(x.uid))).map((x) => ({ ...byId(x.uid), id: x.uid, provider: x.provider, label: (byId(x.uid)?.label || x.provider) + seatNo(x.uid) }));
 function renderModerator() {
   const sel = $('moderator'), prev = sel.value;
   sel.innerHTML = selected().map((p) => `<option value="${p.id}">${esc(nameOf(p.id))}${sg ? ` (${p.label})` : ''}</option>`).join('');
@@ -405,7 +447,9 @@ function handle(ev, ctx) {
       const el = document.createElement('div');
       el.className = 'round';
       const total = ev.consensus ? `합의될 때까지 · 최대 ${ev.total}` : `총 ${ev.total}`;
-      el.textContent = sg ? `── 제${ev.round}차 군의(軍議) · ${total}차 ──` : `── ${ev.round}라운드 / ${total}라운드 ──`;
+      el.textContent = ev.unlimited
+        ? (sg ? `── 제${ev.round}차 군의(軍議) · 결단이 날 때까지 ──` : `── ${ev.round}라운드 · 합의될 때까지 ──`)
+        : sg ? `── 제${ev.round}차 군의(軍議) · ${total}차 ──` : `── ${ev.round}라운드 / ${total}라운드 ──`;
       if (sg && ev.round > 1) document.querySelectorAll('.seat:not(.sage)').forEach((e) => seat(e.dataset.seat, 'idle'));
       feed.appendChild(el);
       break;
@@ -413,7 +457,7 @@ function handle(ev, ctx) {
     case 'thinking': {
       if (ev.round === 'judge') {
         seat(ev.who, 'speaking', '판정 중…');
-        pending[`judge:${ev.who}`] = add(head(ev.who, ctx.labels[ev.who], '<small>합의 여부 판정 중</small>'), 'pending ' + ev.who);
+        pending[`judge:${ev.who}`] = add(head(ev.who, ctx.labels[ev.who], '<small>합의 여부 판정 중</small>'), 'pending ' + provOf(ev.who));
         break;
       }
       if (ev.who === 'sage') {
@@ -423,14 +467,14 @@ function handle(ev, ctx) {
       }
       const label = ctx.labels[ev.who];
       seat(ev.who, ev.round === 'final' ? 'speaking' : 'thinking');
-      pending[key(ev.round, ev.who)] = add(head(ev.who, label, ev.round === 'final' ? '<small>결론 정리 중</small>' : '<small>생각 중</small>'), 'pending ' + ev.who);
+      pending[key(ev.round, ev.who)] = add(head(ev.who, label, ev.round === 'final' ? '<small>결론 정리 중</small>' : '<small>생각 중</small>'), 'pending ' + provOf(ev.who));
       break;
     }
     case 'turn': {
       seat(ev.who, 'done');
       caption(ev.who, ev.text);
-      const el = pending[key(ev.round, ev.who)] || add('', ev.who);
-      el.className = 'msg ' + ev.who;
+      const el = pending[key(ev.round, ev.who)] || add('', provOf(ev.who));
+      el.className = 'msg ' + provOf(ev.who);
       el.innerHTML = head(ev.who, ev.label, `${roleBadge(ev)}${effortBadge(ev)}<small class="model" title="${ev.requested && ev.requested !== ev.model ? `선택한 ${esc(ev.requested)} 는 사용할 수 없어 대체했습니다` : ''}">${esc(ev.model || 'CLI 기본')}${ev.requested && ev.requested !== ev.model ? ` ← ${esc(ev.requested)} 대체` : ''}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`;
       break;
     }
@@ -554,6 +598,7 @@ async function runMeeting(question) {
 // 라운드 선택값: '1'~'3' 은 고정 라운드, 'c4'/'c6' 은 합의까지(최대 N)
 function roundsBody() {
   const v = $('rounds').value;
+  if (v === 'cinf') return { consensus: true, unlimited: true, rounds: 3 };
   return v.startsWith('c') ? { consensus: true, maxRounds: Number(v.slice(1)), rounds: Number(v.slice(1)) } : { consensus: false, rounds: Number(v) };
 }
 $('rounds').addEventListener('change', () => { $('roundsHint').hidden = !$('rounds').value.startsWith('c'); });
@@ -587,15 +632,25 @@ $('reset').addEventListener('click', () => {
 
 function applyTheme() {
   document.body.classList.toggle('sg', sg);
-  $('sg').checked = sg;
+  $('sg').checked = sgWanted;
   document.title = sg ? '桃園 · AI 군의' : 'AI 회의실';
   $('title').textContent = sg ? 'AI 도원결의' : 'AI 회의실';
   $('subtitle').textContent = sg ? '유비 · 관우 · 장비가 군의(軍議)를 열어 결단을 내립니다.' : 'GPT · Gemini · Claude가 함께 토론하고 결론을 정리합니다.';
   if (providers.length) { $('moderator').value = ''; renderParticipants(); }
 }
+// 삼국지 모드는 유비·관우·장비(AI 종류별 한 자리)만 있어서, 같은 AI 를 더 앉히면 쓸 수 없다.
+const sgAllowed = () => seats.every((x) => x.uid === x.provider);
+function syncSg() {
+  const allowed = sgAllowed();
+  $('sg').disabled = !allowed;
+  $('sg').closest('label').title = allowed ? '' : '같은 AI 를 여러 자리에 앉히면 삼국지 모드를 쓸 수 없습니다';
+  const want = sgWanted && allowed;
+  if (want !== sg) { sg = want; applyTheme(); }
+}
 $('sg').addEventListener('change', (e) => {
-  sg = e.target.checked;
-  try { localStorage.setItem('sg', sg ? '1' : '0'); } catch {}
+  sgWanted = e.target.checked;
+  try { localStorage.setItem('sg', sgWanted ? '1' : '0'); } catch {}
+  sg = sgWanted && sgAllowed();
   applyTheme();
 });
 
@@ -625,6 +680,7 @@ fetch('/api/config').then((r) => r.json()).then((cfg) => {
   renderTeams();
   setMode(cfg.defaultMode);
   applyTheme();
+  syncSg();
   if (!providers.some((p) => p.apiConfigured || p.cliAvailable)) {
     add('<div>사용 가능한 AI가 없습니다. <code>.env</code> 에 API 키를 넣거나 claude / codex / gemini CLI를 설치·로그인하세요. (README 참고)</div>', 'err');
   }
