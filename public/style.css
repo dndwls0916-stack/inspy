@@ -213,3 +213,7 @@ body.sg .folder-row button, body.sg .save-bar button { background: transparent !
 .add-seat[hidden] { display: none; }
 .seat-rm { margin-left: auto; padding: 0 8px; line-height: 1.4; font-size: 16px; background: transparent !important; color: var(--muted) !important; border: 1px solid var(--line) !important; border-radius: 6px; cursor: pointer; }
 .seat-rm:hover { color: #dc2626 !important; border-color: #dc2626 !important; }
+
+.votes { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.vote { display: inline-block; min-width: 56px; text-align: center; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; color: #fff; margin-right: 6px; }
+.vote.yes { background: #2f7d4f; } .vote.cond { background: #b45309; } .vote.no { background: #b91c1c; } .vote.unk { background: #6b7280; }

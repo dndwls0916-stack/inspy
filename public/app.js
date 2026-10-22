@@ -460,6 +460,11 @@ function handle(ev, ctx) {
         pending[`judge:${ev.who}`] = add(head(ev.who, ctx.labels[ev.who], '<small>합의 여부 판정 중</small>'), 'pending ' + provOf(ev.who));
         break;
       }
+      if (ev.round === 'ratify') {
+        seat(ev.who, 'speaking', '확인 중…');
+        pending[`ratify:${ev.who}`] = add(head(ev.who, ctx.labels[ev.who], '<small>최종안 확인 중</small>'), 'pending ' + provOf(ev.who));
+        break;
+      }
       if (ev.who === 'sage') {
         seat('sage', 'thinking');
         pending['sage:sage'] = add(`<div class="msg-head"><span class="mini-seal" style="--c:${cfgSage.color}">${cfgSage.hanja}</span>${esc(cfgSage.name)} <small>책략 구상 중</small></div>`, 'pending sage-card');
@@ -488,8 +493,9 @@ function handle(ev, ctx) {
     case 'final': {
       pending[key('final', ev.who)]?.remove();
       seat(ev.who, 'done');
-      const badge = ev.consensus ? `<span class="verdict ${ev.consensus.reached ? 'yes' : 'no'}">${ev.consensus.reached ? `${ev.consensus.round}라운드 합의` : '합의 못함'}</span>` : '';
-      add(head('', sg ? '최종 결단(決斷)' : '최종 결론', `${badge}<small>${sg ? '주재' : '사회자'}: ${esc(nameOf(ev.who))}${ev.consensus && !ev.consensus.reached && ev.consensus.reason ? ` · ${esc(ev.consensus.reason)}` : ''}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`, 'final');
+      const badge = ev.consensus ? `<span class="verdict ${ev.consensus.reached ? 'yes' : 'no'}" ${ev.consensus.partial ? `title="호출에 실패해 입장을 확인하지 못한 참가자: ${esc(ev.consensus.missing.join(', '))}"` : ''}>${ev.consensus.reached ? `${ev.consensus.round}라운드 ${ev.consensus.partial ? '응답자 합의' : '합의'}` : '합의 못함'}</span>` : '';
+      const absent = ev.missing?.length ? `<span class="verdict no" title="호출에 실패해 입장을 확인하지 못했습니다">불참: ${esc(ev.missing.join(', '))}</span>` : '';
+      add(head('', sg ? '최종 결단(決斷)' : '최종 결론', `${badge}${absent}<small>${sg ? '주재' : '사회자'}: ${esc(nameOf(ev.who))}${ev.consensus && !ev.consensus.reached && ev.consensus.reason ? ` · ${esc(ev.consensus.reason)}` : ''}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`, 'final');
       ctx.conclusion = ev.text;
       addSaveBar(ev.text);
       break;
@@ -498,8 +504,21 @@ function handle(ev, ctx) {
       pending[`judge:${ev.who}`]?.remove();
       seat(ev.who, 'done');
       const items = (ev.disagreements || []).map((d) => `<li>${esc(d)}</li>`).join('');
-      add(`<div class="msg-head"><span class="verdict ${ev.reached ? 'yes' : 'no'}">${ev.reached ? '합의' : '쟁점 남음'}</span>${sg ? '군의 판정' : '합의 판정'} <small>${esc(ev.round)}라운드 · ${esc(nameOf(ev.who))}</small></div>` +
-        `<div class="msg-body"><p>${esc(ev.summary || '')}</p>${items ? `<p><b>남은 쟁점</b></p><ul>${items}</ul>` : ''}${ev.stalled ? '<p><i>지난 라운드와 입장이 거의 그대로입니다.</i></p>' : ''}</div>`, 'consensus-card ' + (ev.reached ? 'reached' : 'open'));
+      add(`<div class="msg-head"><span class="verdict ${ev.reached ? 'yes' : 'no'}">${ev.pendingRatify ? '합의 후보' : ev.reached ? '합의' : '쟁점 남음'}</span>${sg ? '군의 판정' : '합의 판정'} <small>${esc(ev.round)}라운드 · ${esc(nameOf(ev.who))}</small></div>` +
+        `<div class="msg-body"><p>${esc(ev.summary || '')}</p>${items ? `<p><b>남은 쟁점</b></p><ul>${items}</ul>` : ''}${ev.stalled ? '<p><i>지난 라운드와 입장이 거의 그대로입니다.</i></p>' : ''}${ev.contradiction ? '<p><i>판정이 합의라고 했지만 남은 쟁점이 있어 합의로 인정하지 않았습니다.</i></p>' : ''}${ev.pendingRatify ? '<p><i>참가자별 확인 투표로 최종 결정합니다.</i></p>' : ''}</div>`, 'consensus-card ' + (ev.reached ? 'reached' : 'open'));
+      break;
+    }
+    case 'ratify': {
+      Object.keys(pending).filter((k) => k.startsWith('ratify:')).forEach((k) => { pending[k].remove(); delete pending[k]; });
+      for (const v of ev.votes) seat(v.who, 'done');
+      const VOTE = { agree: ['동의', 'yes'], conditional: ['조건부', 'cond'], disagree: ['반대', 'no'], unknown: ['확인 못함', 'unk'] };
+      const rows = ev.votes.map((v) => {
+        const [txt, cls] = VOTE[v.vote] || VOTE.unknown;
+        const note = v.vote === 'agree' ? '' : v.condition || v.reason;
+        return `<li><span class="vote ${cls}">${txt}</span> <b>${esc(nameOf(v.who))}</b>${v.roleName ? ` <small>${esc(v.roleName)}</small>` : ''}${note ? ` — ${esc(note)}` : ''}</li>`;
+      }).join('');
+      add(`<div class="msg-head"><span class="verdict ${ev.reached ? 'yes' : 'no'}">${ev.reached ? (ev.missing?.length ? '응답자 전원 동의' : '전원 동의') : '합의 보류'}</span>최종안 확인 <small>${esc(ev.round)}라운드 · 서로의 답을 보지 않고 각자 투표</small></div>` +
+        `<div class="msg-body"><p>${esc(ev.summary || '')}</p><ul class="votes">${rows}</ul>${ev.reached ? '' : '<p><i>동의하지 않은 쟁점을 안고 토론을 이어갑니다.</i></p>'}${ev.missing?.length ? `<p><i>호출에 실패한 ${esc(ev.missing.join(', '))} 의 입장은 확인되지 않았습니다.</i></p>` : ''}</div>`, 'consensus-card ' + (ev.reached ? 'reached' : 'open'));
       break;
     }
     case 'sage': {
