@@ -108,6 +108,7 @@ function config() {
       cliSupported: Boolean(p.cli),
       color: p.color || null,
       envHint: p.envHint || p.keyEnv,
+      hint: p.hint || '',
       extra: Boolean(p.compat),
       persona: PERSONAS[id],
       model: defaultModel(id),

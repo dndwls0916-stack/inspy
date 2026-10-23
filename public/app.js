@@ -433,6 +433,7 @@ function renderParticipants(skipSave = false) {
         <select class="seat-ai" data-ai="${seat.uid}" aria-label="${esc(nameOf(seat.uid))} 의 AI" title="이 자리의 AI 바꾸기">${providers.map((q) => `<option value="${q.id}" ${q.id === seat.provider ? 'selected' : ''}>${esc(q.label)}${ok(q) ? '' : ' (설정 필요)'}</option>`).join('')}</select>
         ${seats.length > 1 ? `<button type="button" class="seat-rm" data-rm="${seat.uid}" aria-label="${esc(nameOf(seat.uid))} 빼기" title="이 참가자 빼기">×</button>` : ''}</div>
       ${modelSelectHtml(seat, p)}
+      ${p.hint ? `<div class="p-hint">${esc(p.hint)}</div>` : ''}
       ${optsHtml(seat, p)}
       ${ok(p) ? '' : `<div class="p-warn">${warnText(p)} (이 자리는 건너뜁니다)</div>`}`;
     box.appendChild(card);

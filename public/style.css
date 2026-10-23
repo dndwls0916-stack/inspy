@@ -234,3 +234,6 @@ label.check input { width: auto; margin-top: 3px; }
 .p-card .p-head { white-space: nowrap; flex-wrap: nowrap; }
 .p-card .p-head .vendor { display: none; } /* AI 종류는 오른쪽 선택칸에 표시 */
 .p-card .p-head .seat-ai { flex: 0 1 auto; min-width: 0; }
+
+.p-hint { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+.half-row[hidden], #reassign[hidden] { display: none; }
