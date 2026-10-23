@@ -73,13 +73,15 @@
 
     <main class="main">
       <section id="stage" class="stage" hidden aria-label="군의 자리"></section>
+      <div class="workspace">
       <section id="office" class="office" aria-label="사무실과 회의실">
-        <div id="officeStage" class="office-stage"></div>
+        <div id="officeBox" class="office-box"><div id="officeStage" class="office-stage"></div></div>
         <div class="office-bar"><span class="status-line"><i class="live-dot" id="liveDot"></i><span id="officeStatus" role="status"></span></span><button type="button" id="viewToggle" class="ghost">토론 내용 보기</button></div>
         <div id="officeCaption" class="office-caption" hidden></div>
       </section>
       <div id="feed" class="feed">
         <div class="empty">질문을 입력하면 참가자들이 라운드별로 의견을 나누고,<br>사회자가 최종 결론을 정리해 보여줍니다.</div>
+      </div>
       </div>
       <form id="form" class="composer">
         <div class="attach-bar">

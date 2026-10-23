@@ -872,12 +872,21 @@ $('saveMinutes').addEventListener('change', () => { try { localStorage.setItem('
 let officeBusy = false, officeTimer = null, officeMeeting = [], po = null, officeView = true;
 const roleLabel = (uid) => cfgRoles.find((r) => r.id === (roleOf(uid) || partState[uid]?.role))?.name || '';
 const getPO = () => po || (po = window.PixelOffice.create($('officeStage')));
+// 넓은 화면은 왼쪽 칸 전체를 사무실이 채우도록 칸 크기를 알려 준다(좁은 화면은 null).
+const wideLayout = () => window.matchMedia('(min-width: 1101px)').matches;
+function stageBox() {
+  if (!wideLayout()) return null;
+  const r = $('officeBox').getBoundingClientRect();
+  return r.width > 50 && r.height > 50 ? { w: r.width, h: r.height } : null;
+}
+let resizeTimer = 0;
+window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (!officeBusy) refreshOffice(); }, 200); });
 function refreshOffice() {
   $('office').hidden = sg;
   document.body.classList.toggle('office-on', !sg && officeView);
   if (sg || officeBusy || !window.PixelOffice) return;
   const ids = seats.map((x) => x.uid).filter((id) => byId(id));
-  getPO().setAgents(ids.map((uid, i) => ({ uid, name: nameOf(uid), role: roleLabel(uid), color: colorOf(uid), look: i })));
+  getPO().setAgents(ids.map((uid, i) => ({ uid, name: nameOf(uid), role: roleLabel(uid), color: colorOf(uid), look: i })), stageBox());
   if (!officeMeeting.length) officeStatusText(ids.length ? `${ids.length}명이 자리에서 일하고 있습니다. 질문을 입력하고 회의를 소집하세요.` : '');
 }
 const officeStatusText = (t) => { $('officeStatus').textContent = t; $('liveDot').classList.toggle('on', officeBusy); };
@@ -953,7 +962,9 @@ function officeEvent(ev) {
     case 'budget': officeStatusText('AI 호출 상한에 닿아 지금까지의 토론으로 결론을 정리합니다'); break;
   }
 }
-try { officeView = localStorage.getItem('officeView') !== '0'; } catch {}
+// 넓은 화면은 오른쪽 칸에 토론 전체를 보여 주는 것이 기본, 좁은 화면은 결론만 보여 주는 것이 기본
+officeView = !wideLayout();
+try { const v = localStorage.getItem('officeView'); if (v === '1') officeView = true; else if (v === '0') officeView = false; } catch {}
 function applyView() {
   document.body.classList.toggle('office-on', !sg && officeView);
   $('viewToggle').textContent = officeView ? '토론 내용 보기' : '토론 내용 숨기기';

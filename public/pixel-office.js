@@ -34,15 +34,20 @@
     let chars = [], clock = 0, last = 0, raf = 0, speedMul = 1;
 
     // ---------- 지도 ----------
-    function build(n) {
+    function build(n, box) {
       n = Math.max(1, Math.min(MAX, n));
       const rows = Math.ceil(n / 2);
-      H = Math.max(15, 5 + 5 * rows);
+      const need = Math.max(15, 5 + 5 * rows);
+      // 담을 칸(box)의 가로세로비에 맞춰 사무실을 위아래로 늘려 빈 여백을 줄인다.
+      H = box && box.w > 0 && box.h > 0 ? Math.min(40, Math.max(need, Math.round(W * box.h / box.w))) : need;
       mid = Math.floor((3 + H) / 2);
       blocked = Array.from({ length: H }, () => Array(W).fill(false));
       for (let y = 0; y < 3; y++) for (let x = 0; x < W; x++) blocked[y][x] = true;
       for (let y = 3; y < H; y++) if (y !== mid - 1 && y !== mid) blocked[y][17] = true;
-      desks = Array.from({ length: MAX }, (_, i) => ({ x: i % 2 ? 10 : 2, y: 5 + 5 * Math.floor(i / 2) })).slice(0, Math.max(n, 2));
+      const pitch = rows > 1 ? Math.min(8, Math.floor((H - 7) / (rows - 1))) : 0;
+      const span = rows > 1 ? (rows - 1) * pitch + 3 : 3; // 첫 자리 줄(1) + 책상(2) + 줄 간격
+      const seat0 = 3 + Math.max(0, Math.floor((H - 3 - span) / 2));
+      desks = Array.from({ length: MAX }, (_, i) => ({ x: i % 2 ? 10 : 2, y: seat0 + 1 + pitch * Math.floor(i / 2) })).slice(0, Math.max(n, 2));
       desks.forEach((d) => { for (let j = 0; j < 2; j++) for (let i = 0; i < 4; i++) blocked[d.y + j][d.x + i] = true; });
       deskSeat = desks.map((d) => ({ tx: d.x + 1, ty: d.y - 1, dir: 'down', sit: true }));
       table = { x: 20, y: mid - 1, w: 8, h: 3 };
@@ -56,7 +61,12 @@
       [[15, 3], [29, 3], [19, H - 2]].forEach(([x, y]) => { blocked[y][x] = true; });
       cv.width = W * T; cv.height = H * T;
       ctx.imageSmoothingEnabled = false;
-      stage.style.aspectRatio = `${W * T} / ${H * T}`;
+      if (box && box.w > 0 && box.h > 0) {
+        const w = Math.floor(Math.min(box.w, box.h * W / H));
+        stage.style.width = w + 'px'; stage.style.height = Math.round(w * H / W) + 'px'; stage.style.aspectRatio = '';
+      } else {
+        stage.style.width = ''; stage.style.height = ''; stage.style.aspectRatio = `${W * T} / ${H * T}`;
+      }
       stage.style.setProperty('--px-ratio', String(W / H));
     }
 
@@ -158,9 +168,9 @@
     }
 
     // ---------- 캐릭터 상태 ----------
-    function setAgents(list) {
+    function setAgents(list, box) {
       list = (list || []).slice(0, MAX);
-      build(list.length);
+      build(list.length, box);
       overlay.innerHTML = '';
       chars = list.map((a, i) => {
         const s = deskSeat[i];
