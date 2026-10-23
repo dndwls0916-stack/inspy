@@ -17,6 +17,9 @@ const { listAllModels, cliModelChoices } = require('./lib/models');
 const { PERSONAS, SAGE } = require('./lib/personas');
 const { scanFolder, saveOutput } = require('./lib/folder');
 const { ROLES, TEAMS, publicRoles } = require('./lib/roles');
+const { estimate } = require('./lib/estimate');
+const { createMinutes } = require('./lib/minutes');
+const os = require('os');
 
 const PORT = Number(process.env.PORT) || 3000;
 // 시작 시 기본 실행 방식: --mode=cli | --mode=api (또는 MODE 환경변수). 화면에서 바꿀 수 있다.
@@ -32,6 +35,12 @@ const autoMode = () => {
 };
 const MAX_ATTACH_FILES = 30;
 const MAX_PARTICIPANTS = 8;
+const DEFAULT_MAX_CALLS = Number(process.env.MAX_CALLS) || 120; // 회의 한 번의 AI 호출 상한 기본값(비용 폭주 방지). 화면에서 바꿀 수 있다
+const MAX_CALLS_LIMIT = 500;
+const MAX_MEETINGS = 2; // 동시에 진행할 수 있는 회의 수
+let activeMeetings = 0;
+// 회의록 저장 위치: 실행파일(또는 프로젝트) 옆 '회의록' 폴더. 데모 모드에서는 임시 폴더.
+const minutesDir = () => process.env.MINUTES_DIR || (isMock() ? path.join(os.tmpdir(), 'ai-council-test-minutes') : path.join(appDir(), '회의록'));
 const UNLIMITED_ROUNDS = 30; // '결론 날 때까지'의 안전 상한(무한 루프/비용 폭주 방지). 평행선이면 그보다 먼저 멈춘다
 const MAX_ATTACH_CHARS = 150_000;
 const PUBLIC = path.join(__dirname, 'public');
@@ -83,6 +92,9 @@ function config() {
     mock: isMock(),
     defaultMode: explicitMode || autoMode(),
     sage: SAGE,
+    defaultMaxCalls: DEFAULT_MAX_CALLS,
+    maxCallsLimit: MAX_CALLS_LIMIT,
+    minutesDefault: process.env.NO_MINUTES !== '1',
     roles: publicRoles(),
     teams: TEAMS,
     providers: Object.entries(PROVIDERS).map(([id, p]) => ({
@@ -92,7 +104,11 @@ function config() {
       keyEnv: p.keyEnv,
       apiConfigured: hasApiKey(id),
       cliAvailable: cliAvailable(id),
-      cliBin: p.cli.bin,
+      cliBin: p.cli ? p.cli.bin : null,
+      cliSupported: Boolean(p.cli),
+      color: p.color || null,
+      envHint: p.envHint || p.keyEnv,
+      extra: Boolean(p.compat),
       persona: PERSONAS[id],
       model: defaultModel(id),
       modelPinned: Boolean(pinnedModel(id)),
@@ -127,6 +143,28 @@ async function handleFolder(req, res, action) {
   }
 }
 
+async function handleEstimate(req, res) {
+  let b;
+  try {
+    b = JSON.parse(await readBody(req, 20_000));
+  } catch {
+    return sendJson(res, 400, { error: '잘못된 요청입니다' });
+  }
+  const consensus = b.consensus === true;
+  const maxCalls = clampCalls(b.maxCalls);
+  return sendJson(res, 200, estimate({
+    n: Math.min(MAX_PARTICIPANTS, Math.max(1, Number(b.n) || 1)),
+    rounds: Math.min(3, Math.max(1, Number(b.rounds) || 2)),
+    consensus,
+    unlimited: consensus && b.unlimited === true,
+    maxRounds: Math.min(8, Math.max(2, Number(b.maxRounds) || 5)),
+    persona: b.persona === true,
+    chars: Math.max(0, Number(b.chars) || 0),
+    maxCalls,
+  }));
+}
+const clampCalls = (v) => Math.min(MAX_CALLS_LIMIT, Math.max(10, Math.floor(Number(v)) || DEFAULT_MAX_CALLS));
+
 async function handleCouncil(req, res) {
   let body;
   try {
@@ -155,10 +193,15 @@ async function handleCouncil(req, res) {
   const missing = participants.filter((p) => !isConfigured(p.provider, mode)).filter((p, i, a) => a.findIndex((q) => q.provider === p.provider) === i);
   if (missing.length) {
     const names = missing.map((p) => PROVIDERS[p.provider]);
+    const hint = (n) =>
+      !n.cli ? `${n.label}(${n.envHint || n.keyEnv} 설정 필요. 이 AI 는 API 방식만 지원)`
+      : mode === 'cli' ? `${n.cli.bin} CLI`
+      : mode === 'mixed' ? `${n.label}(${n.keyEnv} 또는 ${n.cli.bin} CLI)`
+      : n.keyEnv;
     const error =
-      mode === 'cli' ? `CLI가 설치되어 있지 않습니다: ${names.map((n) => `${n.cli.bin} CLI`).join(', ')}`
-      : mode === 'mixed' ? `API 키도 CLI도 없습니다: ${names.map((n) => `${n.label}(${n.keyEnv} 또는 ${n.cli.bin} CLI)`).join(', ')}`
-      : `.env 에 키가 없습니다: ${names.map((n) => n.keyEnv).join(', ')}`;
+      mode === 'cli' ? `CLI가 설치되어 있지 않습니다: ${names.map(hint).join(', ')}`
+      : mode === 'mixed' ? `API 키도 CLI도 없습니다: ${names.map(hint).join(', ')}`
+      : `.env 에 키가 없습니다: ${names.map(hint).join(', ')}`;
     return sendJson(res, 400, { error });
   }
 
@@ -174,6 +217,10 @@ async function handleCouncil(req, res) {
   if (attachments.reduce((n, a) => n + a.text.length, 0) > MAX_ATTACH_CHARS) return sendJson(res, 400, { error: `첨부 내용이 너무 깁니다 (합계 ${MAX_ATTACH_CHARS.toLocaleString()}자 이하)` });
 
   const rounds = Math.min(3, Math.max(1, Number(body.rounds) || 2));
+  const maxCalls = clampCalls(body.maxCalls);
+  const minCalls = participants.length + 1 + (body.persona === true ? 1 : 0);
+  if (maxCalls < minCalls) return sendJson(res, 400, { error: `호출 상한(${maxCalls}회)이 너무 작습니다. 이 구성은 최소 ${minCalls}회가 필요합니다` });
+  if (activeMeetings >= MAX_MEETINGS) return sendJson(res, 429, { error: `이미 회의가 ${activeMeetings}개 진행 중입니다. 끝난 뒤에 시작하세요(동시 최대 ${MAX_MEETINGS}개)` });
   const moderator = participants.some((p) => p.id === body.moderator) ? body.moderator : participants[0].id;
   const history = (Array.isArray(body.history) ? body.history : [])
     .slice(-3)
@@ -182,13 +229,26 @@ async function handleCouncil(req, res) {
   res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive' });
   const ac = new AbortController();
   res.on('close', () => ac.abort());
-  const emit = (ev) => !res.writableEnded && res.write(`data: ${JSON.stringify(ev)}\n\n`);
+  // 회의록: 이벤트를 받을 때마다 파일에 남기므로 중간에 끊기거나 오류가 나도 그때까지의 기록이 남는다.
+  const minutes = body.saveMinutes !== false && process.env.NO_MINUTES !== '1' ? createMinutes({ dir: minutesDir(), question, attachments: attachments.map((a) => a.name), mode }) : null;
+  const emit = (ev) => {
+    minutes?.push(ev);
+    if (!res.writableEnded) res.write(`data: ${JSON.stringify(ev)}\n\n`);
+  };
 
+  activeMeetings++;
+  let status = '완료';
   try {
-    await runCouncil({ question, participants, attachments, rounds, consensus, unlimited, maxRounds, moderator, history, mode, persona: body.persona === true, emit, signal: ac.signal });
+    await runCouncil({ question, participants, attachments, rounds, consensus, unlimited, maxRounds, maxCalls, moderator, history, mode, persona: body.persona === true, emit, signal: ac.signal });
   } catch (err) {
+    status = '오류로 종료';
     emit({ type: 'error', error: String(err.message || err) });
+  } finally {
+    activeMeetings--;
   }
+  if (ac.signal.aborted) status = '중단됨';
+  const saved = minutes?.finish(status);
+  if (saved) emit({ type: 'minutes', path: saved });
   emit({ type: 'done' });
   res.end();
 }
@@ -200,6 +260,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/models') return sendJson(res, 200, isMock() ? {} : await listAllModels());
     if (req.method === 'POST' && url.pathname.startsWith('/api/') && !sameOrigin(req)) return sendJson(res, 403, { error: '허용되지 않은 요청 출처입니다' });
     if (req.method === 'POST' && url.pathname === '/api/council') return await handleCouncil(req, res);
+    if (req.method === 'POST' && url.pathname === '/api/estimate') return await handleEstimate(req, res);
     if (req.method === 'POST' && url.pathname === '/api/folder/scan') return await handleFolder(req, res, 'scan');
     if (req.method === 'POST' && url.pathname === '/api/folder/save') return await handleFolder(req, res, 'save');
 

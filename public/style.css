@@ -211,9 +211,26 @@ body.sg .folder-row button, body.sg .save-bar button { background: transparent !
 .add-seat select { flex: 1; min-width: 0; font-size: 13px; padding: 5px 8px; }
 .add-seat button { width: auto; white-space: nowrap; font-size: 13px; padding: 5px 10px; }
 .add-seat[hidden] { display: none; }
-.seat-rm { margin-left: auto; padding: 0 8px; line-height: 1.4; font-size: 16px; background: transparent !important; color: var(--muted) !important; border: 1px solid var(--line) !important; border-radius: 6px; cursor: pointer; }
+.seat-rm { margin-left: 4px; padding: 0 8px; line-height: 1.4; font-size: 16px; background: transparent !important; color: var(--muted) !important; border: 1px solid var(--line) !important; border-radius: 6px; cursor: pointer; }
 .seat-rm:hover { color: #dc2626 !important; border-color: #dc2626 !important; }
 
 .votes { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
 .vote { display: inline-block; min-width: 56px; text-align: center; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; color: #fff; margin-right: 6px; }
 .vote.yes { background: #2f7d4f; } .vote.cond { background: #b45309; } .vote.no { background: #b91c1c; } .vote.unk { background: #6b7280; }
+
+.estimate { flex: 1 1 100%; font-size: 12px; color: var(--muted); min-height: 1em; }
+.estimate b { color: var(--text); }
+.estimate.warn { color: #b45309; }
+label.check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; margin: 8px 0; cursor: pointer; }
+label.check input { width: auto; margin-top: 3px; }
+.minutes-note { font-size: 12px; color: var(--muted); padding: 4px 2px; word-break: break-all; }
+.budget-card { border-left: 4px solid #b45309; background: color-mix(in srgb, #b45309 8%, var(--bg)); }
+.msg[style*="border-left-color"] { border-left-width: 4px; }
+
+.half-row { display: flex; gap: 6px; align-items: center; margin: -2px 0 8px; }
+.half-row select { flex: 1; min-width: 0; font-size: 13px; padding: 5px 8px; }
+#reassign { margin: 0 0 10px; padding: 5px 10px; font-size: 12px; }
+.p-head .seat-ai { margin: 0 0 0 auto; width: auto; max-width: 46%; font-size: 12px; padding: 2px 6px; font-weight: 400; }
+.p-card .p-head { white-space: nowrap; flex-wrap: nowrap; }
+.p-card .p-head .vendor { display: none; } /* AI 종류는 오른쪽 선택칸에 표시 */
+.p-card .p-head .seat-ai { flex: 0 1 auto; min-width: 0; }

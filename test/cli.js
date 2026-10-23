@@ -37,7 +37,7 @@ const { buildSpawn, pickWinBin, resolveMode, isConfigured, PROVIDERS } = require
   assert.equal(pickWinBin(['C:\\n\\claude.cmd', 'C:\\b\\claude.exe']), 'C:\\b\\claude.exe', '.exe 우선');
   assert.equal(pickWinBin(['C:\\n\\gemini']), null);
   // 실제 고정 인자는 모두 통과해야 한다
-  for (const id of Object.keys(PROVIDERS)) buildSpawn('x.cmd', PROVIDERS[id].cli.args('some-model_1.5:pro'), 'win32');
+  for (const id of Object.keys(PROVIDERS).filter((k) => PROVIDERS[k].cli)) buildSpawn('x.cmd', PROVIDERS[id].cli.args('some-model_1.5:pro'), 'win32');
   console.log('OK: Windows 실행 계획 규칙');
 }
 
@@ -74,7 +74,8 @@ server.listen(0, '127.0.0.1', async () => {
   const post = (body) => fetch(`${base}/api/council`, { method: 'POST', body: JSON.stringify(body) });
   try {
     const cfg = await (await fetch(`${base}/api/config`)).json();
-    assert(cfg.providers.every((p) => p.cliAvailable && !p.apiConfigured), 'CLI만 사용 가능');
+    assert(cfg.providers.filter((p) => !p.extra).every((p) => p.cliAvailable && !p.apiConfigured), 'CLI만 사용 가능');
+    assert(cfg.providers.filter((p) => p.extra).every((p) => !p.cliAvailable && !p.apiConfigured), '다른 AI 는 키가 없으면 사용 불가(CLI 없음)');
 
     // API 모드인데 키가 없으면 거절
     assert.equal((await post({ question: 'Q', participants: [{ id: 'claude' }], mode: 'api' })).status, 400);

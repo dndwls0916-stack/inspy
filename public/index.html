@@ -28,6 +28,13 @@
       <label class="field">팀 구성 <small>자리와 역할을 한 번에</small>
         <select id="team"></select>
       </label>
+      <label class="field">AI 배정 <small>팀을 고를 때 자리마다 앉힐 AI</small>
+        <select id="assign"></select>
+      </label>
+      <div id="halfRow" class="half-row" hidden>
+        <select id="halfA" aria-label="앞쪽 절반의 AI"></select><span>+</span><select id="halfB" aria-label="뒤쪽 절반의 AI"></select>
+      </div>
+      <button id="reassign" class="ghost" type="button" title="지금 참가자들의 역할은 그대로 두고 AI 만 위 방식으로 다시 앉힙니다">지금 참가자에 AI 다시 배정</button>
       <div id="participants"></div>
       <div id="addSeat" class="add-seat">
         <select id="addSeatSel" aria-label="추가할 AI"></select>
@@ -50,6 +57,17 @@
       <label class="field">결론 정리 담당(사회자)
         <select id="moderator"></select>
       </label>
+      <label class="field">AI 호출 상한 <small>회의 한 번의 최대 호출 횟수</small>
+        <select id="maxCalls">
+          <option value="30">30회</option>
+          <option value="60">60회</option>
+          <option value="120" selected>120회 (기본)</option>
+          <option value="250">250회</option>
+          <option value="500">500회</option>
+        </select>
+      </label>
+      <p class="hint">상한에 닿으면 그 시점까지의 토론으로 결론을 정리하고 멈춥니다. 시작 버튼 위에 예상 호출 수가 표시됩니다.</p>
+      <label class="check"><input type="checkbox" id="saveMinutes" checked> <span>회의록 자동 저장 <small>실행파일 옆 <b>회의록</b> 폴더에 .md / .jsonl</small></span></label>
       <button id="reset" class="ghost" type="button">새 회의 시작</button>
     </aside>
 
@@ -78,6 +96,7 @@
             <span id="folderInfo" class="attach-msg info"></span>
           </div>
         </div>
+        <div id="estimate" class="estimate" aria-live="polite"></div>
         <textarea id="q" rows="2" placeholder="회의에 올릴 질문이나 고민을 입력하세요 (Ctrl/⌘+Enter 전송)"></textarea>
         <button id="send" type="submit">회의 시작</button>
         <button id="stop" type="button" hidden>중단</button>

@@ -4,7 +4,8 @@ const COLORS = { gpt: 'var(--gpt)', gemini: 'var(--gemini)', claude: 'var(--clau
 
 let providers = [];
 let mode = 'api';
-const ok = (p) => (mode === 'cli' ? p.cliAvailable : mode === 'mixed' ? p.apiConfigured || p.cliAvailable : p.apiConfigured);
+// API 전용 AI(Grok, DeepSeek 등)는 실행 방식과 상관없이 키(또는 로컬 설정)만 있으면 쓸 수 있다.
+const ok = (p) => (!p.cliSupported ? p.apiConfigured : mode === 'cli' ? p.cliAvailable : mode === 'mixed' ? p.apiConfigured || p.cliAvailable : p.apiConfigured);
 let history = []; // 이전 회의의 질문/결론 (후속 질문에 맥락으로 전달)
 let controller = null;
 let cfgSage = null;
@@ -18,7 +19,7 @@ const byId = (id) => providers.find((p) => p.id === provOf(id));
 let seats = []; // [{ uid, provider }] 회의에 앉을 자리들 (순서 = 발언/표시 순서)
 const seatNo = (uid) => { const same = seats.filter((x) => x.provider === provOf(uid)); return same.length > 1 ? ` ${same.findIndex((x) => x.uid === uid) + 1}` : ''; };
 const nameOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.name : (byId(id)?.label || id) + seatNo(id));
-const colorOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.color : COLORS[provOf(id)] || 'var(--accent)');
+const colorOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.color : COLORS[provOf(id)] || byId(id)?.color || 'var(--accent)');
 
 // --- 아주 작은 마크다운 렌더러 (HTML 이스케이프 후 변환) ---
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -122,6 +123,7 @@ function attachMsg(text, kind = '') {
 }
 
 function renderAttachments() {
+  scheduleEstimate();
   $('attachList').innerHTML = attachments.map((a, i) => `<span class="chip" title="${esc(a.name)}"><b>${esc(a.name)}</b><i>${fmt(a.text.length)}자</i>${a.truncated ? '<span class="warn">일부만</span>' : ''}<button type="button" data-rm="${i}" aria-label="${esc(a.name)} 제거">×</button></span>`).join('');
   $('attachList').querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => { attachments.splice(Number(b.dataset.rm), 1); renderAttachments(); attachMsg(''); }));
   if (attachments.length) attachMsg(`첨부 ${attachments.length}개 · ${fmt(totalChars())}자 — 모든 AI가 매 라운드 읽으므로 호출 수만큼 사용량이 늘어납니다`, 'info');
@@ -240,7 +242,8 @@ function startModel(p) {
 // 선택지: API 는 서비스에서 가져온 목록(없으면 정적 목록), CLI 는 예시 목록, 혼합은 둘의 합집합
 function modelChoices(p) {
   const live = liveModels[p.id]?.ids || [];
-  const list = mode === 'cli' ? p.cliModels : mode === 'mixed' ? [...live, ...p.cliModels] : live.length ? live : p.models;
+  const m = p.cliSupported ? mode : 'api'; // API 전용 AI 는 실행 방식과 상관없이 API 목록을 쓴다
+  const list = m === 'cli' ? p.cliModels : m === 'mixed' ? [...live, ...p.cliModels] : live.length ? live : p.models;
   return [...new Set(list)];
 }
 const CUSTOM = '__custom';
@@ -248,8 +251,8 @@ function modelSelectHtml(seat, p) {
   const choices = modelChoices(p);
   const st = partState[seat.uid] || {};
   const pick = st.model && (st.model === CUSTOM || choices.includes(st.model)) ? st.model : '';
-  const want = mode === 'api' ? startModel(p) : '';
-  const autoLabel = mode === 'cli' ? '자동 (CLI 기본 모델)' : mode === 'mixed' ? '자동 (기본 모델)' : `자동 (${startModel(p)})`;
+  const em = p.cliSupported ? mode : 'api';
+  const autoLabel = em === 'cli' ? '자동 (CLI 기본 모델)' : em === 'mixed' ? '자동 (기본 모델)' : `자동 (${startModel(p)})`;
   const sel = (v) => (v === pick ? ' selected' : '');
   const opts = [`<option value=""${sel('')}>${esc(autoLabel)}</option>`, ...choices.map((m) => `<option value="${esc(m)}"${sel(m)}>${esc(m)}</option>`), `<option value="${CUSTOM}"${sel(CUSTOM)}>직접 입력…</option>`];
   return `<select data-modelsel="${seat.uid}" ${ok(p) ? '' : 'disabled'} aria-label="${esc(p.label)} 모델">${opts.join('')}</select>
@@ -307,7 +310,7 @@ function renderTeams() {
     Object.entries(groups).map(([g, list]) => `<optgroup label="${esc(g)}">${list.map((t) => `<option value="${esc(t.id)}" title="${esc(roleNames(t))}">${esc(t.name)} (${t.roles.length}명)</option>`).join('')}</optgroup>`).join('') +
     `<option value="__clear">역할 모두 해제</option>`;
 }
-// 팀을 고르면 참가자 자리를 팀 인원수만큼 새로 구성하고 역할을 배정한다. 사용 가능한 AI 들에 돌아가며 앉힌다.
+// 팀을 고르면 참가자 자리를 팀 인원수만큼 새로 구성하고 역할을 배정한다. 각 자리에 앉힐 AI 는 "AI 배정"에서 정한 방식을 따른다.
 $('team').addEventListener('change', () => {
   const v = $('team').value;
   if (!v) return;
@@ -317,35 +320,108 @@ $('team').addEventListener('change', () => {
   } else {
     const team = cfgTeams.find((t) => t.id === v);
     if (team) {
-      const usable = providers.filter(ok);
-      const pool = usable.length ? usable : providers;
+      const roles = team.roles.slice(0, MAX_SEATS);
+      const list = assignProviders(roles.length);
+      const next = {};
       seats = [];
-      team.roles.slice(0, MAX_SEATS).forEach((role, i) => {
-        const provider = pool[i % pool.length].id;
+      roles.forEach((role, i) => {
+        const provider = list[i];
         const uid = newUid(provider);
         seats.push({ uid, provider });
-        partState[uid] = { ...(partState[uid] || {}), role };
+        next[uid] = { ...(partState[uid] || {}), role };
       });
+      for (const k of Object.keys(partState)) delete partState[k];
+      Object.assign(partState, next);
     }
   }
   $('team').value = '';
-  renderParticipants();
+  renderParticipants(true); // 방금 정한 역할을 이전 화면 값으로 덮어쓰지 않는다
   syncSg();
 });
+
+// --- AI 배정: 팀을 고를 때(또는 "다시 배정") 자리마다 어떤 AI 를 앉힐지. 전부 한 AI / 반반 / 돌아가며 ---
+const CORE = ['gpt', 'gemini', 'claude'];
+const assignPool = () => {
+  const core = providers.filter((p) => CORE.includes(p.id) && ok(p));
+  return core.length ? core : providers.filter(ok).length ? providers.filter(ok) : providers;
+};
+function renderAssign() {
+  const usable = providers.filter(ok);
+  const prev = { a: $('assign').value, ha: $('halfA').value, hb: $('halfB').value };
+  const pool = assignPool();
+  $('assign').innerHTML = `<option value="rr">골고루 돌아가며 (${esc(pool.map((p) => p.label).join('·'))})</option>` +
+    usable.map((p) => `<option value="all:${p.id}">전부 ${esc(p.label)}</option>`).join('') +
+    (usable.length >= 2 ? '<option value="half">반반 (두 AI 선택)</option>' : '');
+  if ([...$('assign').options].some((o) => o.value === prev.a)) $('assign').value = prev.a;
+  const opts = usable.map((p) => `<option value="${p.id}">${esc(p.label)}</option>`).join('');
+  $('halfA').innerHTML = opts;
+  $('halfB').innerHTML = opts;
+  $('halfA').value = usable.some((p) => p.id === prev.ha) ? prev.ha : usable[0]?.id || '';
+  $('halfB').value = usable.some((p) => p.id === prev.hb) ? prev.hb : (usable[1] || usable[0])?.id || '';
+  $('halfRow').hidden = $('assign').value !== 'half';
+}
+function assignProviders(n) {
+  const v = $('assign').value;
+  if (v.startsWith('all:')) return Array(n).fill(v.slice(4));
+  if (v === 'half') {
+    const half = Math.ceil(n / 2);
+    return Array.from({ length: n }, (_, i) => (i < half ? $('halfA').value : $('halfB').value));
+  }
+  const pool = assignPool();
+  return Array.from({ length: n }, (_, i) => pool[i % pool.length].id);
+}
+$('assign').addEventListener('change', () => { $('halfRow').hidden = $('assign').value !== 'half'; });
+// 지금 참가자들의 역할·생각 깊이는 그대로 두고 AI 만 다시 앉힌다.
+$('reassign').addEventListener('click', () => {
+  saveOpts();
+  const list = assignProviders(seats.length);
+  const old = seats;
+  const next = {};
+  seats = [];
+  old.forEach((s0, i) => {
+    const provider = list[i];
+    const uid = newUid(provider);
+    seats.push({ uid, provider });
+    const st = partState[s0.uid] || {};
+    next[uid] = { role: st.role, effort: st.effort, model: provider === s0.provider ? st.model : '', custom: provider === s0.provider ? st.custom : '' };
+  });
+  for (const k of Object.keys(partState)) delete partState[k];
+  Object.assign(partState, next);
+  renderParticipants(true);
+  syncSg();
+});
+// 자리 하나의 AI 를 바꾼다(역할·생각 깊이는 유지, 모델은 AI 가 달라지므로 자동으로).
+function changeProvider(uid, provider) {
+  saveOpts();
+  const idx = seats.findIndex((x) => x.uid === uid);
+  if (idx < 0) return;
+  const st = partState[uid] || {};
+  seats.splice(idx, 1);
+  const nu = newUid(provider);
+  seats.splice(idx, 0, { uid: nu, provider });
+  delete partState[uid];
+  partState[nu] = { role: st.role, effort: st.effort, model: '', custom: '' };
+  renderParticipants(true);
+  syncSg();
+}
 
 const MAX_SEATS = 8;
 function newUid(provider) {
   if (!seats.some((x) => x.uid === provider)) return provider;
   for (let n = 2; ; n++) if (!seats.some((x) => x.uid === `${provider}-${n}`)) return `${provider}-${n}`;
 }
+// 처음 자리: 기본 3 AI(GPT·Gemini·Claude) 중 쓸 수 있는 것. 하나도 없으면 쓸 수 있는 다른 AI(최대 3), 그것도 없으면 기본 3.
 function defaultSeats() {
-  const usable = providers.filter(ok);
-  return (usable.length ? usable : providers).map((p) => ({ uid: p.id, provider: p.id }));
+  const core = providers.filter((p) => CORE.includes(p.id));
+  const pick = core.filter(ok).length ? core.filter(ok) : providers.filter(ok).slice(0, 3).length ? providers.filter(ok).slice(0, 3) : core;
+  return pick.map((p) => ({ uid: p.id, provider: p.id }));
 }
-const warnText = (p) => (mode === 'cli' ? `'${p.cliBin}' CLI 설치·로그인이 필요합니다` : mode === 'mixed' ? `.env 의 ${p.keyEnv} 또는 '${p.cliBin}' CLI 가 필요합니다` : `.env 에 ${p.keyEnv} 가 필요합니다`);
-function renderParticipants() {
+const warnText = (p) => (!p.cliSupported ? `.env 의 ${p.envHint} 설정이 필요합니다 (이 AI 는 API 방식만 지원)` : mode === 'cli' ? `'${p.cliBin}' CLI 설치·로그인이 필요합니다` : mode === 'mixed' ? `.env 의 ${p.keyEnv} 또는 '${p.cliBin}' CLI 가 필요합니다` : `.env 에 ${p.keyEnv} 가 필요합니다`);
+function renderParticipants(skipSave = false) {
   const box = $('participants');
   if (!seats.length) seats = defaultSeats();
+  else if (!skipSave && box.querySelector('select[data-modelsel]')) saveOpts(); // 다시 그려도(예: 모델 목록이 늦게 도착) 고른 값이 사라지지 않게
+  
   box.innerHTML = '';
   for (const seat of seats) {
     const p = byId(seat.uid);
@@ -354,6 +430,7 @@ function renderParticipants() {
     card.className = 'p-card' + (ok(p) ? '' : ' off');
     card.innerHTML = `
       <div class="p-head"><span class="dot" style="background:${colorOf(seat.uid)}"></span>${esc(nameOf(seat.uid))}<span class="vendor">${sg ? p.label + ' · ' : ''}${p.vendor}</span>
+        <select class="seat-ai" data-ai="${seat.uid}" aria-label="${esc(nameOf(seat.uid))} 의 AI" title="이 자리의 AI 바꾸기">${providers.map((q) => `<option value="${q.id}" ${q.id === seat.provider ? 'selected' : ''}>${esc(q.label)}${ok(q) ? '' : ' (설정 필요)'}</option>`).join('')}</select>
         ${seats.length > 1 ? `<button type="button" class="seat-rm" data-rm="${seat.uid}" aria-label="${esc(nameOf(seat.uid))} 빼기" title="이 참가자 빼기">×</button>` : ''}</div>
       ${modelSelectHtml(seat, p)}
       ${optsHtml(seat, p)}
@@ -362,17 +439,22 @@ function renderParticipants() {
   }
   box.querySelectorAll('select[data-role], select[data-effort], select[data-modelsel]').forEach((x) => x.addEventListener('change', saveOpts));
   box.querySelectorAll('input[data-model]').forEach((x) => x.addEventListener('input', saveOpts));
+  box.querySelectorAll('select[data-ai]').forEach((x) => x.addEventListener('change', () => changeProvider(x.dataset.ai, x.value)));
   box.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => { saveOpts(); seats = seats.filter((x) => x.uid !== b.dataset.rm); delete partState[b.dataset.rm]; renderParticipants(); syncSg(); }));
   renderAddSeat();
+  renderAssign();
   wireModelSelects();
   renderModerator();
+  scheduleEstimate();
 }
 // "+ 참가자 추가": 같은 AI 를 여러 자리에 앉힐 수도 있다(예: Claude 변호사 + Claude 비판자)
 function renderAddSeat() {
   const wrap = $('addSeat');
   wrap.hidden = seats.length >= MAX_SEATS;
   const sel = $('addSeatSel');
-  sel.innerHTML = providers.map((p) => `<option value="${p.id}">${esc(p.label)}${ok(p) ? '' : ' (설정 필요)'}</option>`).join('');
+  const opt = (p) => `<option value="${p.id}">${esc(p.label)}${ok(p) ? '' : ' (설정 필요)'}</option>`;
+  const core = providers.filter((p) => !p.extra), extra = providers.filter((p) => p.extra);
+  sel.innerHTML = core.map(opt).join('') + (extra.length ? `<optgroup label="그 밖의 AI (API)">${extra.map(opt).join('')}</optgroup>` : '');
 }
 $('addSeatBtn').addEventListener('click', () => {
   if (seats.length >= MAX_SEATS) return;
@@ -421,7 +503,8 @@ const seatHtml = (id, p, extra = '') => `<div class="seat idle ${extra}" data-se
   <div class="seat-title">${esc(p.title)}</div><div class="seat-state">${STATE.idle}</div></div>`;
 function renderStage(ids) {
   const stage = $('stage');
-  stage.hidden = !sg || !ids.length;
+  // 군의 장면은 캐릭터가 있는 기본 3 AI 만 앉힐 수 있다(다른 AI 가 있으면 보여 주지 않는다)
+  stage.hidden = !sg || !ids.length || ids.some((id) => !byId(id)?.persona);
   if (stage.hidden) return;
   stage.innerHTML = `<div class="scene">
     <div class="screen" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
@@ -499,6 +582,7 @@ function handle(ev, ctx) {
       caption(ev.who, ev.text);
       const el = pending[key(ev.round, ev.who)] || add('', provOf(ev.who));
       el.className = 'msg ' + provOf(ev.who);
+      el.style.borderLeftColor = colorOf(ev.who); // 기본 3 AI 외의 AI 도 색으로 구분
       el.innerHTML = head(ev.who, ev.label, `${roleBadge(ev)}${effortBadge(ev)}<small class="model" title="${ev.requested && ev.requested !== ev.model ? `선택한 ${esc(ev.requested)} 는 사용할 수 없어 대체했습니다` : ''}">${esc(ev.model || 'CLI 기본')}${ev.requested && ev.requested !== ev.model ? ` ← ${esc(ev.requested)} 대체` : ''}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`;
       break;
     }
@@ -553,6 +637,10 @@ function handle(ev, ctx) {
       pending['sage:sage']?.remove();
       break;
     }
+    case 'budget': add(`<div class="msg-head">⚠️ 호출 상한 <small>${esc(ev.used)}/${esc(ev.max)}회</small></div><div class="msg-body"><p>${esc(ev.message)}</p></div>`, 'budget-card'); break;
+    case 'usage': add(`AI 호출 ${esc(ev.calls)}${ev.maxCalls ? ` / 상한 ${esc(ev.maxCalls)}` : ''}회 사용`, 'minutes-note'); break;
+    case 'minutes': add(`📝 회의록 저장됨: ${esc(ev.path)}`, 'minutes-note'); break;
+    case 'done': ctx.done = true; break;
     case 'error': add(`<div>${esc(ev.error)}</div>`, 'err'); break;
   }
   feed.scrollTop = feed.scrollHeight;
@@ -603,6 +691,8 @@ async function runMeeting(question) {
         persona: sg,
         ...roundsBody(),
         moderator: $('moderator').value,
+        maxCalls: Number($('maxCalls').value),
+        saveMinutes: $('saveMinutes').checked,
         history,
       }),
     });
@@ -622,6 +712,7 @@ async function runMeeting(question) {
         if (chunk.startsWith('data: ')) handle(JSON.parse(chunk.slice(6)), ctx);
       }
     }
+    if (!ctx.done && !controller.signal.aborted) add('<div>연결이 끊겨 회의가 도중에 끝났을 수 있습니다. 위 기록은 그때까지의 내용입니다. (서버가 켜져 있다면 회의록 폴더에 기록이 남아 있을 수 있습니다)</div>', 'err');
     if (ctx.conclusion) history.push({ question, conclusion: ctx.conclusion });
   } catch (err) {
     if (err.name !== 'AbortError') add(`<div>${esc(err.message)}</div>`, 'err');
@@ -677,7 +768,7 @@ function applyTheme() {
   if (providers.length) { $('moderator').value = ''; renderParticipants(); }
 }
 // 삼국지 모드는 유비·관우·장비(AI 종류별 한 자리)만 있어서, 같은 AI 를 더 앉히면 쓸 수 없다.
-const sgAllowed = () => seats.every((x) => x.uid === x.provider);
+const sgAllowed = () => seats.every((x) => x.uid === x.provider && byId(x.uid)?.persona);
 function syncSg() {
   const allowed = sgAllowed();
   $('sg').disabled = !allowed;
@@ -713,6 +804,19 @@ fetch('/api/config').then((r) => r.json()).then((cfg) => {
   providers = cfg.providers;
   $('demo').hidden = !cfg.mock;
   cfgSage = cfg.sage;
+  { // 서버의 기본 호출 상한(.env 의 MAX_CALLS)을 화면에 반영
+    const sel = $('maxCalls');
+    const want = String(cfg.defaultMaxCalls || 120);
+    if (![...sel.options].some((o) => o.value === want)) {
+      const o = new Option(`${want}회 (기본)`, want);
+      const after = [...sel.options].find((x) => Number(x.value) > Number(want));
+      sel.add(o, after || null);
+    }
+    sel.value = want;
+    let off = false;
+    try { off = localStorage.getItem('saveMinutes') === '0'; } catch {}
+    $('saveMinutes').checked = cfg.minutesDefault !== false && !off;
+  }
   cfgRoles = cfg.roles || [];
   cfgTeams = cfg.teams || [];
   renderTeams();
@@ -723,3 +827,30 @@ fetch('/api/config').then((r) => r.json()).then((cfg) => {
     add('<div>사용 가능한 AI가 없습니다. <code>.env</code> 에 API 키를 넣거나 claude / codex / gemini CLI를 설치·로그인하세요. (README 참고)</div>', 'err');
   }
 });
+
+
+// --- 시작 전 예상 호출 수/토큰 ---
+let estTimer = null;
+function scheduleEstimate() {
+  clearTimeout(estTimer);
+  estTimer = setTimeout(updateEstimate, 300);
+}
+async function updateEstimate() {
+  const el = $('estimate');
+  const n = selected().length;
+  if (!n) { el.textContent = ''; return; }
+  try {
+    const maxCalls = Number($('maxCalls').value);
+    const r = await postJson('/api/estimate', { n, ...roundsBody(), persona: sg, chars: qEl.value.length + totalChars(), maxCalls });
+    const k = (x) => (x < 1000 ? `${x}` : x < 1e6 ? `${Math.round(x / 100) / 10}천` : `${Math.round(x / 1e5) / 10}백만`);
+    const calls = r.calls.min === r.calls.max ? `<b>${r.calls.max}회</b>` : `<b>${r.calls.min}~${r.calls.max}회</b>`;
+    el.className = 'estimate' + (r.calls.capped || r.calls.max >= 100 ? ' warn' : '');
+    el.innerHTML = `예상 AI 호출 ${calls}${r.calls.capped ? ` (상한 ${maxCalls}회에서 멈춤)` : ''} · 입력 약 ${k(r.inputTokens.min)}${r.inputTokens.min === r.inputTokens.max ? '' : `~${k(r.inputTokens.max)}`} 토큰 <small>(대략, 첨부는 매번 다시 들어갑니다)</small>`;
+  } catch {
+    el.textContent = '';
+  }
+}
+document.addEventListener('input', scheduleEstimate);
+document.addEventListener('change', scheduleEstimate);
+
+$('saveMinutes').addEventListener('change', () => { try { localStorage.setItem('saveMinutes', $('saveMinutes').checked ? '1' : '0'); } catch {} });
