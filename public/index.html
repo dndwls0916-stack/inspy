@@ -74,14 +74,7 @@
     <main class="main">
       <section id="stage" class="stage" hidden aria-label="군의 자리"></section>
       <section id="office" class="office" aria-label="사무실과 회의실">
-        <div id="officeScene" class="office-scene">
-          <div class="floor floor-office"><span class="zone-label">사무실</span></div>
-          <div class="floor floor-room">
-            <span class="zone-label" id="roomLabel">회의실</span>
-            <div class="room-table"><span class="table-cap">의제</span><span id="tableAgenda" class="table-agenda"></span></div>
-          </div>
-          <div class="wall" aria-hidden="true"></div>
-        </div>
+        <div id="officeStage" class="office-stage"></div>
         <div class="office-bar"><span class="status-line"><i class="live-dot" id="liveDot"></i><span id="officeStatus" role="status"></span></span><button type="button" id="viewToggle" class="ghost">토론 내용 보기</button></div>
         <div id="officeCaption" class="office-caption" hidden></div>
       </section>
@@ -115,6 +108,7 @@
       </form>
     </main>
   </div>
+  <script src="pixel-office.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
