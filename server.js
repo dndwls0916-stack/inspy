@@ -44,7 +44,7 @@ const minutesDir = () => process.env.MINUTES_DIR || (isMock() ? path.join(os.tmp
 const UNLIMITED_ROUNDS = 30; // '결론 날 때까지'의 안전 상한(무한 루프/비용 폭주 방지). 평행선이면 그보다 먼저 멈춘다
 const MAX_ATTACH_CHARS = 150_000;
 const PUBLIC = path.join(__dirname, 'public');
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.css': 'text/css; charset=utf-8' };
+const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.css': 'text/css; charset=utf-8' };
 
 function readStatic(rel) {
   if (sea) {
