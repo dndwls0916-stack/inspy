@@ -75,10 +75,14 @@
       <section id="stage" class="stage" hidden aria-label="군의 자리"></section>
       <section id="office" class="office" aria-label="사무실과 회의실">
         <div id="officeScene" class="office-scene">
-          <div class="zone zone-office"><span class="zone-label">사무실</span></div>
-          <div class="zone zone-room"><span class="zone-label" id="roomLabel">회의실</span><div class="room-table"></div></div>
+          <div class="floor floor-office"><span class="zone-label">사무실</span></div>
+          <div class="floor floor-room">
+            <span class="zone-label" id="roomLabel">회의실</span>
+            <div class="room-table"><span class="table-cap">의제</span><span id="tableAgenda" class="table-agenda"></span></div>
+          </div>
+          <div class="wall" aria-hidden="true"></div>
         </div>
-        <div class="office-bar"><span id="officeStatus" role="status"></span><button type="button" id="viewToggle" class="ghost">토론 내용 보기</button></div>
+        <div class="office-bar"><span class="status-line"><i class="live-dot" id="liveDot"></i><span id="officeStatus" role="status"></span></span><button type="button" id="viewToggle" class="ghost">토론 내용 보기</button></div>
         <div id="officeCaption" class="office-caption" hidden></div>
       </section>
       <div id="feed" class="feed">
@@ -86,9 +90,9 @@
       </div>
       <form id="form" class="composer">
         <div class="attach-bar">
-          <button type="button" id="attachBtn" class="attach-btn" title="파일 첨부 (끌어다 놓아도 됩니다)">📎 첨부</button>
+          <button type="button" id="attachBtn" class="attach-btn" title="파일 첨부 (끌어다 놓아도 됩니다)">첨부</button>
           <input type="file" id="fileInput" multiple hidden accept=".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.xml,.html,.htm,.css,.js,.mjs,.ts,.tsx,.jsx,.py,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.bat,.ps1,.sql,.yml,.yaml,.toml,.ini,.cfg,.conf,.log,.srt,.vtt,.tex,.pdf,.docx">
-          <button type="button" id="folderBtn" class="attach-btn" title="폴더를 지정해 안의 문서를 읽게 합니다">📁 폴더</button>
+          <button type="button" id="folderBtn" class="attach-btn" title="폴더를 지정해 안의 문서를 읽게 합니다">폴더</button>
           <span id="attachList" class="chips"></span>
           <span id="attachMsg" class="attach-msg" role="status"></span>
         </div>
