@@ -879,7 +879,7 @@ function layout(n) {
   const cols = narrow ? Math.min(n, 4) || 1 : n <= 2 ? n || 1 : n <= 6 ? 3 : 4;
   const rows = Math.ceil(n / cols) || 1;
   const oh = narrow ? rows * ROW_PX + 36 : 0;
-  geo = { narrow, cols, rows, oh, height: narrow ? oh + 300 : rows > 1 ? 470 : 340 };
+  geo = { narrow, cols, rows, oh, height: narrow ? oh + 300 : rows > 1 ? 520 : 340 };
   officeScene.style.height = geo.height + 'px';
   officeScene.classList.toggle('narrow', narrow);
   officeScene.style.setProperty('--oh', oh + 'px');
@@ -918,7 +918,7 @@ function refreshOffice() {
     av.dataset.uid = uid;
     av.dataset.i = i;
     av.style.setProperty('--c', colorOf(uid));
-    av.innerHTML = `<div class="face"><b>${esc(initials(uid))}</b><span class="badge"></span></div><div class="av-name">${esc(nameOf(uid))}${roleLabel(uid) ? `<small>${esc(roleLabel(uid))}</small>` : ''}</div>`;
+    av.innerHTML = `<div class="face"><b>${esc(initials(uid))}</b><img src="img/av${(i % 8) + 1}.jpg" alt="" draggable="false" onerror="this.remove()"><span class="badge"></span></div><div class="av-name">${esc(nameOf(uid))}${roleLabel(uid) ? `<small>${esc(roleLabel(uid))}</small>` : ''}</div>`;
     setPos(av, home);
     officeScene.appendChild(av);
   });
