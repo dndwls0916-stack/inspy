@@ -73,6 +73,14 @@
 
     <main class="main">
       <section id="stage" class="stage" hidden aria-label="군의 자리"></section>
+      <section id="office" class="office" aria-label="사무실과 회의실">
+        <div id="officeScene" class="office-scene">
+          <div class="zone zone-office"><span class="zone-label">사무실</span></div>
+          <div class="zone zone-room"><span class="zone-label" id="roomLabel">회의실</span><div class="room-table"></div></div>
+        </div>
+        <div class="office-bar"><span id="officeStatus" role="status"></span><button type="button" id="viewToggle" class="ghost">토론 내용 보기</button></div>
+        <div id="officeCaption" class="office-caption" hidden></div>
+      </section>
       <div id="feed" class="feed">
         <div class="empty">질문을 입력하면 참가자들이 라운드별로 의견을 나누고,<br>사회자가 최종 결론을 정리해 보여줍니다.</div>
       </div>
@@ -98,7 +106,7 @@
         </div>
         <div id="estimate" class="estimate" aria-live="polite"></div>
         <textarea id="q" rows="2" placeholder="회의에 올릴 질문이나 고민을 입력하세요 (Ctrl/⌘+Enter 전송)"></textarea>
-        <button id="send" type="submit">회의 시작</button>
+        <button id="send" type="submit">회의 소집</button>
         <button id="stop" type="button" hidden>중단</button>
       </form>
     </main>

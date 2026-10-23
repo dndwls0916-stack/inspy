@@ -451,6 +451,7 @@ function renderParticipants(skipSave = false) {
   renderAssign();
   wireModelSelects();
   renderModerator();
+  refreshOffice();
   scheduleEstimate();
 }
 // "+ 참가자 추가": 같은 AI 를 여러 자리에 앉힐 수도 있다(예: Claude 변호사 + Claude 비판자)
@@ -542,6 +543,7 @@ const refreshStage = () => renderStage(selected().map((p) => p.id).sort((a, b) =
 const pending = {}; // key -> element
 
 function handle(ev, ctx) {
+  officeEvent(ev);
   const key = (r, who) => `${r}:${who}`;
   switch (ev.type) {
     case 'start':
@@ -684,6 +686,7 @@ async function runMeeting(question) {
   const ctx = { labels: {}, conclusion: null };
   agenda = question.length > 70 ? question.slice(0, 70) + '…' : question;
   refreshStage();
+  officeBegin();
   try {
     const res = await fetch('/api/council', {
       method: 'POST',
@@ -726,6 +729,7 @@ async function runMeeting(question) {
   } finally {
     Object.values(pending).forEach((el) => el.classList.contains('pending') && el.remove());
     for (const k in pending) delete pending[k];
+    officeEnd(Boolean(ctx.done));
     setBusy(false);
   }
 }
@@ -763,10 +767,12 @@ $('reset').addEventListener('click', () => {
   agenda = '의제를 올려 주세요';
   refreshStage();
   feed.innerHTML = '<div class="empty">새 회의를 시작합니다. 질문을 입력하세요.</div>';
+  officeEnd(false, true);
 });
 
 function applyTheme() {
   document.body.classList.toggle('sg', sg);
+  refreshOffice();
   $('sg').checked = sgWanted;
   document.title = sg ? '桃園 · AI 군의' : 'AI 회의실';
   $('title').textContent = sg ? 'AI 도원결의' : 'AI 회의실';
@@ -860,3 +866,133 @@ document.addEventListener('input', scheduleEstimate);
 document.addEventListener('change', scheduleEstimate);
 
 $('saveMinutes').addEventListener('change', () => { try { localStorage.setItem('saveMinutes', $('saveMinutes').checked ? '1' : '0'); } catch {} });
+
+// --- 사무실: 참가자가 자기 자리(사무실)에 있다가, 회의를 소집하면 회의실로 가서 논의한다 ---
+// 토론 원문은 회의록에 저장하고, 화면에는 누가 지금 어떤 상태인지와 결론만 보여 준다("토론 내용 보기"로 원문도 볼 수 있다).
+let officeBusy = false, officeTimer = null, officeMeeting = [];
+const officeScene = $('officeScene');
+const homePos = (i, n) => {
+  const cols = n <= 2 ? n : n <= 6 ? 3 : 4, rows = Math.ceil(n / cols);
+  return { x: 4 + ((i % cols) + 0.5) * (50 / cols), y: 20 + (Math.floor(i / cols) + 0.5) * (66 / rows) };
+};
+const roomPos = (i, n) => {
+  const a = (2 * Math.PI * i) / n - Math.PI / 2;
+  return { x: 77 + 16 * Math.cos(a), y: 55 + 28 * Math.sin(a) };
+};
+const setPos = (el, p) => { el.style.left = p.x + '%'; el.style.top = p.y + '%'; };
+const avOf = (uid) => officeScene.querySelector(`.av[data-uid="${uid}"]`);
+const roleIcon = (uid) => cfgRoles.find((r) => r.id === (roleOf(uid) || partState[uid]?.role))?.icon || '🧑‍💼';
+const roleLabel = (uid) => cfgRoles.find((r) => r.id === (roleOf(uid) || partState[uid]?.role))?.name || '';
+function refreshOffice() {
+  const box = $('office');
+  box.hidden = sg;
+  document.body.classList.toggle('office-on', !sg && officeView);
+  if (sg || officeBusy) return;
+  officeScene.querySelectorAll('.av, .desk').forEach((e) => e.remove());
+  const ids = seats.map((x) => x.uid).filter((id) => byId(id));
+  ids.forEach((uid, i) => {
+    const home = homePos(i, ids.length);
+    const desk = document.createElement('div');
+    desk.className = 'desk';
+    setPos(desk, home);
+    officeScene.appendChild(desk);
+    const av = document.createElement('div');
+    av.className = 'av idle';
+    av.dataset.uid = uid;
+    av.dataset.i = i;
+    av.style.setProperty('--c', colorOf(uid));
+    av.innerHTML = `<div class="face">${roleIcon(uid)}<i class="badge"></i></div><div class="av-name">${esc(nameOf(uid))}${roleLabel(uid) ? `<small>${esc(roleLabel(uid))}</small>` : ''}</div>`;
+    setPos(av, home);
+    officeScene.appendChild(av);
+  });
+  if (!officeMeeting.length) $('officeStatus').textContent = ids.length ? `${ids.length}명이 자리에 있습니다. 질문을 입력해 회의를 소집하세요.` : '';
+}
+function avState(uid, st, badge) {
+  const el = avOf(uid);
+  if (!el) return;
+  el.classList.remove('idle', 'thinking', 'talk', 'done', 'error');
+  el.classList.add(st);
+  el.querySelector('.badge').textContent = badge || { thinking: '…', talk: '💬', done: '✓', error: '⚠️' }[st] || '';
+}
+function moveAll(toRoom) {
+  const ids = officeMeeting;
+  officeScene.querySelectorAll('.av').forEach((el) => {
+    const i = ids.indexOf(el.dataset.uid);
+    const home = homePos(Number(el.dataset.i), officeScene.querySelectorAll('.av').length);
+    const target = toRoom && i >= 0 ? roomPos(i, ids.length) : home;
+    el.classList.add('walking');
+    setPos(el, target);
+    setTimeout(() => el.classList.remove('walking'), 1000);
+  });
+}
+const officeSay = (uid, text) => {
+  const el = $('officeCaption');
+  const plain = String(text).replace(/[#*`>\-|]/g, ' ').replace(/\s+/g, ' ').trim();
+  el.hidden = !plain;
+  el.innerHTML = `<b>${esc(nameOf(uid))}${roleLabel(uid) ? ` · ${esc(roleLabel(uid))}` : ''}</b> ${esc(plain.length > 110 ? plain.slice(0, 110) + '…' : plain)}`;
+};
+const officeStatusText = (t) => { $('officeStatus').textContent = t; };
+function officeBegin() {
+  clearTimeout(officeTimer);
+  officeBusy = false;
+  refreshOffice();
+  officeBusy = true;
+  officeMeeting = [];
+  $('officeCaption').hidden = true;
+  $('roomLabel').textContent = '회의실';
+  officeStatusText('회의를 소집하는 중…');
+}
+function officeEnd(finished, instant) {
+  clearTimeout(officeTimer);
+  const back = () => {
+    officeBusy = false;
+    moveAll(false);
+    officeMeeting = [];
+    $('officeCaption').hidden = true;
+    officeScene.querySelectorAll('.av').forEach((e) => avState(e.dataset.uid, 'idle', ''));
+    $('roomLabel').textContent = '회의실';
+    refreshOffice();
+  };
+  if (!officeMeeting.length) { back(); return; }
+  officeStatusText(finished ? '회의가 끝났습니다. 결론을 확인하세요. 잠시 후 각자 자리로 돌아갑니다.' : '회의가 중단되어 자리로 돌아갑니다.');
+  if (instant) back(); else officeTimer = setTimeout(back, finished ? 3500 : 800);
+}
+function officeEvent(ev) {
+  if (sg || !officeBusy) return;
+  switch (ev.type) {
+    case 'start':
+      officeMeeting = ev.participants.map((p) => p.id).filter((id) => avOf(id));
+      moveAll(true);
+      officeStatusText('회의실로 이동해 회의를 시작합니다.');
+      break;
+    case 'round':
+      $('roomLabel').textContent = `회의실 · ${ev.round}라운드`;
+      officeMeeting.forEach((id) => avState(id, 'idle', ''));
+      officeStatusText(`${ev.round}라운드: 각자 의견을 정리하는 중`);
+      break;
+    case 'thinking':
+      if (ev.round === 'judge') officeStatusText('합의가 됐는지 판정하는 중');
+      else if (ev.round === 'ratify') officeStatusText('최종안에 동의하는지 각자 확인하는 중');
+      else if (ev.round === 'final') officeStatusText('사회자가 결론을 정리하는 중');
+      avState(ev.who, 'thinking');
+      break;
+    case 'turn': avState(ev.who, 'talk'); officeSay(ev.who, ev.text); officeStatusText(`${nameOf(ev.who)} 발언`); break;
+    case 'turn_error': avState(ev.who, 'error'); break;
+    case 'consensus': avState(ev.who, 'done'); officeStatusText(ev.reached ? '합의 후보가 나왔습니다' : `쟁점이 남아 토론을 이어갑니다 (${(ev.disagreements || []).length}건)`); break;
+    case 'ratify': ev.votes.forEach((v) => avState(v.who, 'done')); officeStatusText(ev.reached ? '전원 동의' : '합의 보류'); break;
+    case 'final': avState(ev.who, 'done'); officeStatusText(ev.consensus && !ev.consensus.reached ? '결론을 정리했습니다 (합의는 못 했습니다)' : '결론이 나왔습니다'); break;
+    case 'budget': officeStatusText('AI 호출 상한에 닿아 지금까지의 토론으로 결론을 정리합니다'); break;
+  }
+}
+let officeView = true;
+try { officeView = localStorage.getItem('officeView') !== '0'; } catch {}
+function applyView() {
+  document.body.classList.toggle('office-on', !sg && officeView);
+  $('viewToggle').textContent = officeView ? '토론 내용 보기' : '토론 내용 숨기기';
+}
+$('viewToggle').addEventListener('click', () => {
+  officeView = !officeView;
+  try { localStorage.setItem('officeView', officeView ? '1' : '0'); } catch {}
+  applyView();
+});
+applyView();
