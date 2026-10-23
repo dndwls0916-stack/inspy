@@ -241,7 +241,12 @@ label.check input { width: auto; margin-top: 3px; }
 /* --- 사무실 / 회의실: 픽셀 오피스 --- */
 .office { padding: 14px 24px 0; }
 .office[hidden] { display: none; }
-.office-stage { margin: 0 auto; width: 100%; max-width: min(100%, calc(78vh * var(--px-ratio, 1.8))); }
+.office-stage { --stage-vh: 42vh; margin: 0 auto; width: 100%; max-width: min(100%, calc(var(--stage-vh) * var(--px-ratio, 1.8))); }
+/* 토론 내용을 펼치면 그림을 줄여 글이 들어갈 자리를 확보한다 */
+body:not(.office-on) .office-stage { --stage-vh: 32vh; }
+@container (max-width: 520px) { .px-chip small { display: none; } }
+.office { flex: none; }
+.main .feed { min-height: 140px; }
 .pixel-stage { container-type: inline-size; position: relative; width: 100%; border: 2px solid #3b4254; border-radius: 10px; overflow: hidden; background: #222; }
 .pixel-stage canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
 .px-overlay { position: absolute; inset: 0; pointer-events: none; }

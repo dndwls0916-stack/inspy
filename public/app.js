@@ -962,5 +962,6 @@ $('viewToggle').addEventListener('click', () => {
   officeView = !officeView;
   try { localStorage.setItem('officeView', officeView ? '1' : '0'); } catch {}
   applyView();
+  if (!officeView) feed.scrollTop = 0; // 토론 내용을 펼치면 처음부터 읽을 수 있게
 });
 applyView();
