@@ -15,7 +15,7 @@
     "demo": "MOCK=1 node server.js",
     "build:exe": "node scripts/build.js",
     "build:exe:win": "node scripts/build.js --target=win-x64",
-    "test": "MOCK=1 node test/smoke.js && node test/cli.js && node test/models.js && node test/consensus.js && node test/attachments.js && node test/folder.js && node test/roles.js && node test/seats.js && node test/trust.js && node test/safety.js && node test/providers.js"
+    "test": "MOCK=1 node test/smoke.js && node test/cli.js && node test/models.js && node test/consensus.js && node test/attachments.js && node test/folder.js && node test/roles.js && node test/seats.js && node test/trust.js && node test/skills.js && node test/safety.js && node test/providers.js"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

@@ -289,14 +289,22 @@ function optsHtml(seat, p) {
       <select data-role="${uid}" ${ok(p) ? '' : 'disabled'} aria-label="${esc(p.label)} 역할">${roleOptions(st.role)}</select>
       <select data-effort="${uid}" ${ok(p) ? '' : 'disabled'} aria-label="${esc(p.label)} 생각 깊이">
         <option value="">생각 깊이: 자동</option>${['low', 'medium', 'high'].map((e) => `<option value="${e}" ${st.effort === e ? 'selected' : ''}>생각 깊이: ${EFFORT_LABEL[e]}</option>`).join('')}
-      </select></div>`;
+      </select>
+      ${skillList.length ? `<select data-skill="${uid}" class="skill-sel" ${ok(p) ? '' : 'disabled'} aria-label="${esc(p.label)} 스킬" title="스킬: 이 참가자에게 전문 작업 지침을 더해 줍니다(호출마다 글자가 늘어 사용량이 조금 늘어납니다)">${skillOptions(st.skill)}</select>` : ''}</div>`;
 }
+let skillList = [];
+function skillOptions(sel) {
+  const groups = {};
+  for (const k of skillList) (groups[k.source] ||= []).push(k);
+  return `<option value="">스킬: 없음</option>` + Object.entries(groups).map(([g, l]) => `<optgroup label="${esc(g)}">${l.map((k) => `<option value="${k.id}" title="${esc(k.description)}" ${sel === k.id ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</optgroup>`).join('');
+}
+const skillOf = (id) => document.querySelector(`select[data-skill="${id}"]`)?.value || '';
 const roleOf = (id) => document.querySelector(`select[data-role="${id}"]`)?.value || '';
 const effortOf = (id) => document.querySelector(`select[data-effort="${id}"]`)?.value || '';
 function saveOpts() {
   for (const x of seats) {
     const ms = document.querySelector(`select[data-modelsel="${x.uid}"]`);
-    partState[x.uid] = { role: roleOf(x.uid), effort: effortOf(x.uid), model: ms ? ms.value : '', custom: document.querySelector(`input[data-model="${x.uid}"]`)?.value || '' };
+    partState[x.uid] = { role: roleOf(x.uid), effort: effortOf(x.uid), skill: skillOf(x.uid), model: ms ? ms.value : '', custom: document.querySelector(`input[data-model="${x.uid}"]`)?.value || '' };
   }
 }
 const roleBadge = (ev) => (ev.roleName ? `<span class="role-badge">${esc((cfgRoles.find((r) => r.id === ev.role) || {}).icon || '')} ${esc(ev.roleName)}</span>` : '');
@@ -388,7 +396,7 @@ function reassignSeats() {
     const uid = newUid(provider);
     seats.push({ uid, provider });
     const st = partState[s0.uid] || {};
-    next[uid] = { role: st.role, effort: st.effort, model: provider === s0.provider ? st.model : '', custom: provider === s0.provider ? st.custom : '' };
+    next[uid] = { role: st.role, effort: st.effort, skill: st.skill, model: provider === s0.provider ? st.model : '', custom: provider === s0.provider ? st.custom : '' };
   });
   for (const k of Object.keys(partState)) delete partState[k];
   Object.assign(partState, next);
@@ -405,7 +413,7 @@ function changeProvider(uid, provider) {
   const nu = newUid(provider);
   seats.splice(idx, 0, { uid: nu, provider });
   delete partState[uid];
-  partState[nu] = { role: st.role, effort: st.effort, model: '', custom: '' };
+  partState[nu] = { role: st.role, effort: st.effort, skill: st.skill, model: '', custom: '' };
   renderParticipants(true);
   syncSg();
 }
@@ -443,7 +451,7 @@ function renderParticipants(skipSave = false) {
       ${ok(p) ? '' : `<div class="p-warn">${warnText(p)} (이 자리는 건너뜁니다)</div>`}`;
     box.appendChild(card);
   }
-  box.querySelectorAll('select[data-role], select[data-effort], select[data-modelsel]').forEach((x) => x.addEventListener('change', saveOpts));
+  box.querySelectorAll('select[data-role], select[data-effort], select[data-skill], select[data-modelsel]').forEach((x) => x.addEventListener('change', saveOpts));
   box.querySelectorAll('input[data-model]').forEach((x) => x.addEventListener('input', saveOpts));
   box.querySelectorAll('select[data-ai]').forEach((x) => x.addEventListener('change', () => changeProvider(x.dataset.ai, x.value)));
   box.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => { saveOpts(); seats = seats.filter((x) => x.uid !== b.dataset.rm); delete partState[b.dataset.rm]; renderParticipants(); syncSg(); }));
@@ -692,7 +700,7 @@ async function runMeeting(question) {
       body: JSON.stringify({
         question,
         attachments: attachments.map(({ name, text }) => ({ name, text })),
-        participants: chosen.map((p) => ({ id: p.id, model: modelValue(p.id), role: roleOf(p.id), effort: effortOf(p.id) })),
+        participants: chosen.map((p) => ({ id: p.id, model: modelValue(p.id), role: roleOf(p.id), effort: effortOf(p.id), skill: skillOf(p.id) })),
         mode,
         persona: sg,
         ...roundsBody(),
@@ -860,3 +868,27 @@ document.addEventListener('input', scheduleEstimate);
 document.addEventListener('change', scheduleEstimate);
 
 $('saveMinutes').addEventListener('change', () => { try { localStorage.setItem('saveMinutes', $('saveMinutes').checked ? '1' : '0'); } catch {} });
+
+// --- 스킬: 내 PC 의 Claude 스킬 목록 불러오기 + GitHub 에서 설치 ---
+function setSkills(list) {
+  skillList = list || [];
+  $('skillInfo').textContent = skillList.length ? `불러온 스킬 ${skillList.length}개. 참가자 카드의 "스킬" 칸에서 고르세요.` : '불러온 스킬이 없습니다. 아래에서 설치하거나, Claude 스킬을 만든 뒤 새로고침하세요.';
+  if (providers.length) renderParticipants();
+}
+function loadSkills() { return fetch('/api/skills').then((r) => r.json()).then((d) => setSkills(d.skills)).catch(() => {}); }
+$('skillRefresh').addEventListener('click', loadSkills);
+$('skillInstall').addEventListener('click', async () => {
+  const repo = $('skillRepo').value.trim();
+  if (!repo) return;
+  $('skillInstall').disabled = true;
+  $('skillInfo').textContent = '내려받는 중…';
+  try {
+    const r = await fetch('/api/skills/install', { method: 'POST', body: JSON.stringify({ repo }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || '설치에 실패했습니다');
+    setSkills(d.skills);
+    $('skillInfo').textContent = `스킬 ${d.installed}개를 설치했습니다. 불러온 스킬 ${d.skills.length}개.`;
+  } catch (e) { $('skillInfo').textContent = '설치 실패: ' + e.message; }
+  $('skillInstall').disabled = false;
+});
+loadSkills();
