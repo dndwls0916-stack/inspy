@@ -140,7 +140,7 @@ async function addFiles(fileList) {
       if (/\.pdf$/i.test(name)) text = await readPdf(file);
       else if (/\.docx$/i.test(name)) text = await readDocx(file);
       else if (TEXT_EXT.test(name) || file.type.startsWith('text/')) text = await readText(file);
-      else throw new Error('지원하지 않는 형식입니다 (텍스트, 코드, CSV, JSON, PDF, docx 가능. 이미지·hwp 는 안 됩니다. 엑셀·파워포인트는 📁 폴더로 읽을 수 있습니다)');
+      else throw new Error('지원하지 않는 형식입니다 (텍스트, 코드, CSV, JSON, PDF, docx 가능. 이미지·hwp 는 안 됩니다. 엑셀·파워포인트는  폴더로 읽을 수 있습니다)');
       text = text.replace(/\u0000/g, '').trim();
       if (!text) throw new Error('내용이 비어 있습니다');
       const room = ATTACH.maxChars - totalChars();
@@ -280,7 +280,7 @@ const EFFORT_LABEL = { low: '낮음', medium: '보통', high: '높음' };
 function roleOptions(selected) {
   const groups = {};
   for (const r of cfgRoles) (groups[r.group] ||= []).push(r);
-  return `<option value="">역할 없음</option>` + Object.entries(groups).map(([g, list]) => `<optgroup label="${esc(g)}">${list.map((r) => `<option value="${esc(r.id)}" title="${esc(r.view)}" ${r.id === selected ? 'selected' : ''}>${esc(r.icon)} ${esc(r.name)}</option>`).join('')}</optgroup>`).join('');
+  return `<option value="">역할 없음</option>` + Object.entries(groups).map(([g, list]) => `<optgroup label="${esc(g)}">${list.map((r) => `<option value="${esc(r.id)}" title="${esc(r.view)}" ${r.id === selected ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</optgroup>`).join('');
 }
 function optsHtml(seat, p) {
   const st = partState[seat.uid] || {};
@@ -299,7 +299,7 @@ function saveOpts() {
     partState[x.uid] = { role: roleOf(x.uid), effort: effortOf(x.uid), model: ms ? ms.value : '', custom: document.querySelector(`input[data-model="${x.uid}"]`)?.value || '' };
   }
 }
-const roleBadge = (ev) => (ev.roleName ? `<span class="role-badge">${esc((cfgRoles.find((r) => r.id === ev.role) || {}).icon || '')} ${esc(ev.roleName)}</span>` : '');
+const roleBadge = (ev) => (ev.roleName ? `<span class="role-badge">${esc(ev.roleName)}</span>` : '');
 const effortBadge = (ev) => (ev.effort ? `<span class="effort-badge ${ev.effortApplied ? '' : 'off'}" title="${ev.effortApplied ? '이 호출에 적용됨' : '이 모델/방식은 생각 깊이 설정을 받지 않아 기본값으로 실행했습니다'}">깊이 ${EFFORT_LABEL[ev.effort]}${ev.effortApplied ? '' : ' (미적용)'}</span>` : '');
 
 function renderTeams() {
@@ -370,9 +370,14 @@ function assignProviders(n) {
   const pool = assignPool();
   return Array.from({ length: n }, (_, i) => pool[i % pool.length].id);
 }
-$('assign').addEventListener('change', () => { $('halfRow').hidden = $('assign').value !== 'half'; });
+// "AI 배정"을 바꾸면 지금 앉아 있는 참가자들에게도 바로 적용한다(역할·생각 깊이는 유지).
+$('assign').addEventListener('change', () => { $('halfRow').hidden = $('assign').value !== 'half'; reassignSeats(); });
+$('halfA').addEventListener('change', reassignSeats);
+$('halfB').addEventListener('change', reassignSeats);
+$('reassign').addEventListener('click', reassignSeats);
 // 지금 참가자들의 역할·생각 깊이는 그대로 두고 AI 만 다시 앉힌다.
-$('reassign').addEventListener('click', () => {
+function reassignSeats() {
+  if (!seats.length) return;
   saveOpts();
   const list = assignProviders(seats.length);
   const old = seats;
@@ -389,7 +394,7 @@ $('reassign').addEventListener('click', () => {
   Object.assign(partState, next);
   renderParticipants(true);
   syncSg();
-});
+}
 // 자리 하나의 AI 를 바꾼다(역할·생각 깊이는 유지, 모델은 AI 가 달라지므로 자동으로).
 function changeProvider(uid, provider) {
   saveOpts();
@@ -433,6 +438,7 @@ function renderParticipants(skipSave = false) {
         <select class="seat-ai" data-ai="${seat.uid}" aria-label="${esc(nameOf(seat.uid))} 의 AI" title="이 자리의 AI 바꾸기">${providers.map((q) => `<option value="${q.id}" ${q.id === seat.provider ? 'selected' : ''}>${esc(q.label)}${ok(q) ? '' : ' (설정 필요)'}</option>`).join('')}</select>
         ${seats.length > 1 ? `<button type="button" class="seat-rm" data-rm="${seat.uid}" aria-label="${esc(nameOf(seat.uid))} 빼기" title="이 참가자 빼기">×</button>` : ''}</div>
       ${modelSelectHtml(seat, p)}
+      ${p.hint ? `<div class="p-hint">${esc(p.hint)}</div>` : ''}
       ${optsHtml(seat, p)}
       ${ok(p) ? '' : `<div class="p-warn">${warnText(p)} (이 자리는 건너뜁니다)</div>`}`;
     box.appendChild(card);
@@ -445,6 +451,7 @@ function renderParticipants(skipSave = false) {
   renderAssign();
   wireModelSelects();
   renderModerator();
+  refreshOffice();
   scheduleEstimate();
 }
 // "+ 참가자 추가": 같은 AI 를 여러 자리에 앉힐 수도 있다(예: Claude 변호사 + Claude 비판자)
@@ -536,6 +543,7 @@ const refreshStage = () => renderStage(selected().map((p) => p.id).sort((a, b) =
 const pending = {}; // key -> element
 
 function handle(ev, ctx) {
+  officeEvent(ev);
   const key = (r, who) => `${r}:${who}`;
   switch (ev.type) {
     case 'start':
@@ -637,9 +645,9 @@ function handle(ev, ctx) {
       pending['sage:sage']?.remove();
       break;
     }
-    case 'budget': add(`<div class="msg-head">⚠️ 호출 상한 <small>${esc(ev.used)}/${esc(ev.max)}회</small></div><div class="msg-body"><p>${esc(ev.message)}</p></div>`, 'budget-card'); break;
+    case 'budget': add(`<div class="msg-head">호출 상한 <small>${esc(ev.used)}/${esc(ev.max)}회</small></div><div class="msg-body"><p>${esc(ev.message)}</p></div>`, 'budget-card'); break;
     case 'usage': add(`AI 호출 ${esc(ev.calls)}${ev.maxCalls ? ` / 상한 ${esc(ev.maxCalls)}` : ''}회 사용`, 'minutes-note'); break;
-    case 'minutes': add(`📝 회의록 저장됨: ${esc(ev.path)}`, 'minutes-note'); break;
+    case 'minutes': add(`회의록 저장됨: ${esc(ev.path)}`, 'minutes-note'); break;
     case 'done': ctx.done = true; break;
     case 'error': add(`<div>${esc(ev.error)}</div>`, 'err'); break;
   }
@@ -651,11 +659,11 @@ function addSaveBar(text) {
   const el = document.createElement('div');
   el.className = 'save-bar';
   const base = (agenda || '회의결과').replace(/[\\/:*?"<>|\n]/g, ' ').slice(0, 30).trim() || '회의결과';
-  el.innerHTML = `<span>💾 결과물로 저장</span><input type="text" class="sv-name" value="${esc(base)}" aria-label="파일 이름"><select class="sv-fmt" aria-label="형식"><option value="md">.md</option><option value="docx">.docx (워드)</option><option value="xlsx">.xlsx (엑셀, 표만)</option><option value="pptx">.pptx (파워포인트)</option><option value="html">.html</option><option value="txt">.txt</option><option value="csv">.csv</option></select><button type="button" class="sv-go">저장</button><span class="save-msg" role="status"></span>`;
+  el.innerHTML = `<span>결과물로 저장</span><input type="text" class="sv-name" value="${esc(base)}" aria-label="파일 이름"><select class="sv-fmt" aria-label="형식"><option value="md">.md</option><option value="docx">.docx (워드)</option><option value="xlsx">.xlsx (엑셀, 표만)</option><option value="pptx">.pptx (파워포인트)</option><option value="html">.html</option><option value="txt">.txt</option><option value="csv">.csv</option></select><button type="button" class="sv-go">저장</button><span class="save-msg" role="status"></span>`;
   const msg = el.querySelector('.save-msg');
   el.querySelector('.sv-go').addEventListener('click', async () => {
     const dir = folderRoot || $('folderPath').value.trim();
-    if (!dir) { msg.className = 'save-msg err'; msg.textContent = '먼저 📁 폴더에서 저장할 폴더를 지정하세요'; $('folderPanel').hidden = false; return; }
+    if (!dir) { msg.className = 'save-msg err'; msg.textContent = '먼저 폴더에서 저장할 폴더를 지정하세요'; $('folderPanel').hidden = false; return; }
     try {
       const r = await postJson('/api/folder/save', { path: dir, name: el.querySelector('.sv-name').value, format: el.querySelector('.sv-fmt').value, content: text });
       msg.className = 'save-msg';
@@ -672,12 +680,13 @@ async function runMeeting(question) {
   const chosen = selected();
   if (!chosen.length) return add('<div>참가할 AI를 한 명 이상 선택하세요.</div>', 'err');
 
-  add(esc(question) + (attachments.length ? `<div class="att-names">📎 ${attachments.map((a) => esc(a.name)).join(', ')}</div>` : ''), 'user');
+  add(esc(question) + (attachments.length ? `<div class="att-names">첨부: ${attachments.map((a) => esc(a.name)).join(', ')}</div>` : ''), 'user');
   setBusy(true);
   controller = new AbortController();
   const ctx = { labels: {}, conclusion: null };
   agenda = question.length > 70 ? question.slice(0, 70) + '…' : question;
   refreshStage();
+  officeBegin();
   try {
     const res = await fetch('/api/council', {
       method: 'POST',
@@ -720,6 +729,7 @@ async function runMeeting(question) {
   } finally {
     Object.values(pending).forEach((el) => el.classList.contains('pending') && el.remove());
     for (const k in pending) delete pending[k];
+    officeEnd(Boolean(ctx.done));
     setBusy(false);
   }
 }
@@ -757,10 +767,12 @@ $('reset').addEventListener('click', () => {
   agenda = '의제를 올려 주세요';
   refreshStage();
   feed.innerHTML = '<div class="empty">새 회의를 시작합니다. 질문을 입력하세요.</div>';
+  officeEnd(false, true);
 });
 
 function applyTheme() {
   document.body.classList.toggle('sg', sg);
+  refreshOffice();
   $('sg').checked = sgWanted;
   document.title = sg ? '桃園 · AI 군의' : 'AI 회의실';
   $('title').textContent = sg ? 'AI 도원결의' : 'AI 회의실';
@@ -854,3 +866,101 @@ document.addEventListener('input', scheduleEstimate);
 document.addEventListener('change', scheduleEstimate);
 
 $('saveMinutes').addEventListener('change', () => { try { localStorage.setItem('saveMinutes', $('saveMinutes').checked ? '1' : '0'); } catch {} });
+
+// --- 사무실: 픽셀 오피스(pixel-office.js). 참가자가 책상에서 일하다가 소집되면 회의실로 걸어가 토론한다 ---
+// 토론 원문은 회의록에 저장하고, 화면에는 누가 지금 어떤 상태인지와 결론만 보여 준다("토론 내용 보기"로 원문도 볼 수 있다).
+let officeBusy = false, officeTimer = null, officeMeeting = [], po = null, officeView = true;
+const roleLabel = (uid) => cfgRoles.find((r) => r.id === (roleOf(uid) || partState[uid]?.role))?.name || '';
+const getPO = () => po || (po = window.PixelOffice.create($('officeStage')));
+function refreshOffice() {
+  $('office').hidden = sg;
+  document.body.classList.toggle('office-on', !sg && officeView);
+  if (sg || officeBusy || !window.PixelOffice) return;
+  const ids = seats.map((x) => x.uid).filter((id) => byId(id));
+  getPO().setAgents(ids.map((uid, i) => ({ uid, name: nameOf(uid), role: roleLabel(uid), color: colorOf(uid), look: i })));
+  if (!officeMeeting.length) officeStatusText(ids.length ? `${ids.length}명이 자리에서 일하고 있습니다. 질문을 입력하고 회의를 소집하세요.` : '');
+}
+const officeStatusText = (t) => { $('officeStatus').textContent = t; $('liveDot').classList.toggle('on', officeBusy); };
+const officeSay = (uid, text) => {
+  const el = $('officeCaption');
+  const plain = String(text).replace(/[#*`>\-|]/g, ' ').replace(/\s+/g, ' ').trim();
+  el.hidden = !plain;
+  el.style.setProperty('--c', colorOf(uid));
+  el.innerHTML = `<b>${esc(nameOf(uid))}${roleLabel(uid) ? ` (${esc(roleLabel(uid))})` : ''}</b>${esc(plain.length > 110 ? plain.slice(0, 110) + '…' : plain)}`;
+};
+// 말풍선용 짧은 문장(첫 문장, 최대 30자)
+const shortLine = (text) => {
+  const lines = String(text).split(/\n/).map((l) => l.replace(/[#*`>|]/g, ' ').replace(/^[\s\-]+/, '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const first = (lines[0] || '').split(/(?<=[.!?。])\s/)[0];
+  return first.length > 24 ? first.slice(0, 24) + '…' : first;
+};
+function officeBegin() {
+  clearTimeout(officeTimer);
+  officeBusy = false;
+  refreshOffice();
+  officeBusy = true;
+  officeMeeting = [];
+  $('officeCaption').hidden = true;
+  officeStatusText('회의를 소집하는 중…');
+}
+function officeEnd(finished, instant) {
+  clearTimeout(officeTimer);
+  const back = () => {
+    officeBusy = false;
+    if (po) { po.clearBubbles(); po.setRoomLabel(''); po.disperse(); }
+    officeMeeting = [];
+    $('officeCaption').hidden = true;
+    officeStatusText('각자 자리로 돌아가 일하고 있습니다.');
+  };
+  if (!officeMeeting.length) { back(); return; }
+  officeStatusText(finished ? '회의가 끝났습니다. 결론을 확인하세요. 잠시 후 각자 자리로 돌아갑니다.' : '회의가 중단되어 자리로 돌아갑니다.');
+  if (instant) back(); else officeTimer = setTimeout(back, finished ? 3500 : 800);
+}
+function officeEvent(ev) {
+  if (sg || !officeBusy || !po) return;
+  switch (ev.type) {
+    case 'start':
+      officeMeeting = ev.participants.map((p) => p.id);
+      po.gather(officeMeeting);
+      officeStatusText('회의실로 이동해 회의를 시작합니다.');
+      break;
+    case 'round':
+      po.clearBubbles();
+      po.setRoomLabel(`${ev.round}라운드`);
+      officeStatusText(`${ev.round}라운드: 각자 의견을 정리하는 중`);
+      break;
+    case 'thinking':
+      if (ev.round === 'judge') officeStatusText('합의가 됐는지 판정하는 중');
+      else if (ev.round === 'ratify') officeStatusText('최종안에 동의하는지 각자 확인하는 중');
+      else if (ev.round === 'final') officeStatusText('사회자가 결론을 정리하는 중');
+      po.bubble(ev.who, '...');
+      break;
+    case 'turn': po.talk(ev.who, shortLine(ev.text)); officeSay(ev.who, ev.text); officeStatusText(`${nameOf(ev.who)} 발언`); break;
+    case 'turn_error': po.bubble(ev.who, '응답 실패', 6000); break;
+    case 'consensus':
+      po.bubble(ev.who, ev.reached ? '합의 후보' : '쟁점이 남았어요', 4000);
+      officeStatusText(ev.reached ? '합의 후보가 나왔습니다' : `쟁점이 남아 토론을 이어갑니다 (${(ev.disagreements || []).length}건)`);
+      break;
+    case 'ratify':
+      for (const v of ev.votes) {
+        const agree = v.vote === 'agree';
+        po.bubble(v.who, { agree: '동의', conditional: '조건부 동의', disagree: '반대', unknown: '...' }[v.vote] || '...', 5000);
+        po.hand(v.who, agree, 5000);
+      }
+      officeStatusText(ev.reached ? '전원 동의' : '합의 보류');
+      break;
+    case 'final': po.talk(ev.who, '결론을 정리했어요', 3000); officeStatusText(ev.consensus && !ev.consensus.reached ? '결론을 정리했습니다 (합의는 못 했습니다)' : '결론이 나왔습니다'); break;
+    case 'budget': officeStatusText('AI 호출 상한에 닿아 지금까지의 토론으로 결론을 정리합니다'); break;
+  }
+}
+try { officeView = localStorage.getItem('officeView') !== '0'; } catch {}
+function applyView() {
+  document.body.classList.toggle('office-on', !sg && officeView);
+  $('viewToggle').textContent = officeView ? '토론 내용 보기' : '토론 내용 숨기기';
+}
+$('viewToggle').addEventListener('click', () => {
+  officeView = !officeView;
+  try { localStorage.setItem('officeView', officeView ? '1' : '0'); } catch {}
+  applyView();
+});
+applyView();

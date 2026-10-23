@@ -6,11 +6,13 @@ const { recommendedModel, pickDefault, rankModels, isModelAccessError, apiCandid
 assert.deepEqual(['gpt-5', 'gpt-5.10', 'gpt-5.2', 'gpt-4o'].sort(newestFirst), ['gpt-5.10', 'gpt-5.2', 'gpt-5', 'gpt-4o'], '5.10 > 5.2');
 
 // --- 기본 모델 추천 ---
-assert.equal(pickDefault('gemini', ['gemini-3.1-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash-lite']), 'gemini-2.5-flash', '안정판 flash 우선');
+assert.equal(pickDefault('gemini', ['gemini-3.1-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash-lite']), 'gemini-2.5-flash-lite', '무료 키로 호출 가능한 flash-lite 를 flash 보다 먼저');
+assert.equal(pickDefault('gemini', ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.5-pro']), 'gemini-3.5-flash-lite', '무료 키 보고: 3.5 flash-lite 만 호출 가능 → 자동 선택이 lite 를 고른다');
+assert.deepEqual(rankModels('gemini', ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.5-flash-lite-preview', 'gemini-3.5-pro']).slice(0, 3), ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite-preview', 'gemini-3.5-flash'], '안정판 lite > preview lite > flash');
 assert.equal(pickDefault('gemini', ['gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite']), 'gemini-3.1-flash-lite', '안정판 flash 가 없으면 안정판 lite 를 preview 보다 우선');
 assert.equal(pickDefault('gemini', ['gemini-3-flash-preview', 'gemini-3.1-pro-preview']), 'gemini-3-flash-preview', 'lite 도 없으면 preview flash');
 // 실제 보고: 이름만 새로운 코드명 모델(gemini-4-argon)은 무료 한도가 0 이라 자동 선택하면 안 된다
-assert.deepEqual(rankModels('gemini', ['gemini-4-argon', 'gemini-3.1-pro-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro']), ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-4-argon', 'gemini-3.1-pro-preview', 'gemini-2.5-pro'], 'flash 계열 우선, 코드명/pro 는 뒤');
+assert.deepEqual(rankModels('gemini', ['gemini-4-argon', 'gemini-3.1-pro-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro']), ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-4-argon', 'gemini-3.1-pro-preview', 'gemini-2.5-pro'], 'lite > flash 우선, 코드명/pro 는 뒤');
 assert.notEqual(pickDefault('gemini', ['gemini-4-argon', 'gemini-2.5-flash']), 'gemini-4-argon');
 
 // --- 모델 접근 불가 신호 판별 ---
@@ -105,17 +107,41 @@ assert.equal(withModelHint(quota, { model: 'x', via: 'api' }), quota, '한도 �
     const realCall = PROVIDERS.gemini.call;
     PROVIDERS.gemini.call = async ({ model }) => {
       tried.push(model);
-      if (model === 'gemini-3.5-flash') throw new Error('HTTP 429: free_tier_requests, limit: 0, model: gemini-3.5-flash');
+      if (model === 'gemini-3.1-flash-lite') throw new Error('HTTP 429: free_tier_requests, limit: 0, model: gemini-3.1-flash-lite');
       return 'ok:' + model;
     };
     const used = [];
     const out = await callProvider('gemini', { mode: 'api', model: '', system: 's', prompt: 'p', onUse: (m) => used.push(m) });
-    assert.equal(out, 'ok:gemini-3.1-flash-lite', '한도 0 인 모델은 건너뛰고 다음 후보 사용');
-    assert.deepEqual(tried, ['gemini-3.5-flash', 'gemini-3.1-flash-lite']);
-    assert.deepEqual(used, ['gemini-3.5-flash', 'gemini-3.1-flash-lite'], '시도한 모델을 알림');
+    assert.equal(out, 'ok:gemini-2.5-flash-lite', '한도 0 인 모델은 건너뛰고 다음 후보 사용(lite 계열이 먼저)');
+    assert.deepEqual(tried, ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite']);
+    assert.deepEqual(used, ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'], '시도한 모델을 알림');
     tried.length = 0;
     await callProvider('gemini', { mode: 'api', model: '', system: 's', prompt: 'p' });
-    assert.deepEqual(tried, ['gemini-3.1-flash-lite'], '성공한 모델을 기억해 바로 사용');
+    assert.deepEqual(tried, ['gemini-2.5-flash-lite'], '성공한 모델을 기억해 바로 사용');
+    // 무료 키 보고: 3.5 flash-lite 만 호출 가능 → 자동이면 처음부터 lite 로 호출(실패 없이)
+    resetModelMemory();
+    global.fetch = async () => ({ ok: true, json: async () => ({ models: ['gemini-3.5-pro', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'].map((n) => ({ name: 'models/' + n, supportedGenerationMethods: ['generateContent'] })) }) });
+    process.env.GEMINI_API_KEY = 'free-key';
+    tried.length = 0;
+    PROVIDERS.gemini.call = async ({ model }) => {
+      tried.push(model);
+      if (model !== 'gemini-3.5-flash-lite') throw new Error(`HTTP 429: free_tier_requests, limit: 0, model: ${model}`);
+      return 'ok:' + model;
+    };
+    assert.equal(await callProvider('gemini', { mode: 'api', model: '', system: 's', prompt: 'p' }), 'ok:gemini-3.5-flash-lite');
+    assert.deepEqual(tried, ['gemini-3.5-flash-lite'], '무료 키: 첫 시도부터 성공(헛호출 없음)');
+    assert.equal(PROVIDERS.gemini.defaultModel, 'gemini-3.5-flash-lite', '정적 기본 모델도 flash-lite');
+    // 예전 .env 템플릿의 GEMINI_MODEL=gemini-2.5-flash 는 고정으로 보지 않는다(지금은 새 계정에서 못 쓴다)
+    process.env.GEMINI_MODEL = 'gemini-2.5-flash';
+    assert.equal(require('../lib/providers').pinnedModel('gemini'), null);
+    delete process.env.GEMINI_MODEL;
+    resetModelMemory();
+    global.fetch = async () => ({ ok: true, json: async () => ({ models: ['gemini-4-argon', 'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'].map((n) => ({ name: 'models/' + n, supportedGenerationMethods: ['generateContent'] })) }) });
+    process.env.GEMINI_API_KEY = 'k6';
+    PROVIDERS.gemini.call = async ({ model }) => {
+      tried.push(model);
+      return 'ok:' + model;
+    };
     // 기본 모델(gemini-2.5-flash)이 목록에 있으면 그것을 먼저 쓴다
     resetModelMemory();
     global.fetch = async () => ({ ok: true, json: async () => ({ models: ['gemini-3.5-flash', 'gemini-2.5-flash'].map((n) => ({ name: 'models/' + n, supportedGenerationMethods: ['generateContent'] })) }) });
