@@ -370,9 +370,14 @@ function assignProviders(n) {
   const pool = assignPool();
   return Array.from({ length: n }, (_, i) => pool[i % pool.length].id);
 }
-$('assign').addEventListener('change', () => { $('halfRow').hidden = $('assign').value !== 'half'; });
+// "AI 배정"을 바꾸면 지금 앉아 있는 참가자들에게도 바로 적용한다(역할·생각 깊이는 유지).
+$('assign').addEventListener('change', () => { $('halfRow').hidden = $('assign').value !== 'half'; reassignSeats(); });
+$('halfA').addEventListener('change', reassignSeats);
+$('halfB').addEventListener('change', reassignSeats);
+$('reassign').addEventListener('click', reassignSeats);
 // 지금 참가자들의 역할·생각 깊이는 그대로 두고 AI 만 다시 앉힌다.
-$('reassign').addEventListener('click', () => {
+function reassignSeats() {
+  if (!seats.length) return;
   saveOpts();
   const list = assignProviders(seats.length);
   const old = seats;
@@ -389,7 +394,7 @@ $('reassign').addEventListener('click', () => {
   Object.assign(partState, next);
   renderParticipants(true);
   syncSg();
-});
+}
 // 자리 하나의 AI 를 바꾼다(역할·생각 깊이는 유지, 모델은 AI 가 달라지므로 자동으로).
 function changeProvider(uid, provider) {
   saveOpts();
