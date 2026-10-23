@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>픽셀 오피스 샘플</title>
+<style>
+  :root { --bg: #f2f4f7; --panel: #fff; --text: #1c2026; --muted: #667085; --line: #d9dee6; --accent: #4f46e5; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #14161a; --panel: #1d2026; --text: #e7e9ee; --muted: #9aa1ad; --line: #2c313a; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
+  main { max-width: 1000px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.sub { margin: 0 0 14px; color: var(--muted); }
+  .stage { position: relative; width: 100%; aspect-ratio: 480 / 272; border: 2px solid #3b4254; border-radius: 10px; overflow: hidden; background: #222; }
+  canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+  .tag { position: absolute; transform: translate(-50%, 0);} .tag.above { transform: translate(-50%, -100%); }
+  .tag { pointer-events: none; text-align: center; white-space: nowrap; }
+  .chip { display: inline-block; padding: 1px 7px; border-radius: 6px; background: rgba(255,255,255,.94); color: #1c2026; border: 1px solid rgba(0,0,0,.25); font-size: clamp(9px, 1.25vw, 12px); font-weight: 700; line-height: 1.3; }
+  .chip small[hidden] { display: none; }
+  .chip small { display: block; font-weight: 500; color: #5b6472; font-size: .88em; }
+  .bubble { position: absolute; transform: translate(-50%, -100%); max-width: 34%; padding: 5px 9px; border-radius: 8px; background: #fff; color: #1c2026; border: 2px solid #2a2f3a; font-size: clamp(9px, 1.3vw, 13px); line-height: 1.35; pointer-events: none; }
+  .bubble::after { content: ''; position: absolute; left: 50%; bottom: -7px; width: 9px; height: 9px; background: #fff; border-right: 2px solid #2a2f3a; border-bottom: 2px solid #2a2f3a; transform: translateX(-50%) rotate(45deg); }
+  .dots i { display: inline-block; width: 5px; height: 5px; margin: 0 1.5px; border-radius: 50%; background: #2a2f3a; animation: b 1s infinite; }
+  .dots i:nth-child(2) { animation-delay: .15s; } .dots i:nth-child(3) { animation-delay: .3s; }
+  @keyframes b { 50% { transform: translateY(-3px); } }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+  button { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #status { margin-left: auto; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>픽셀 오피스 샘플 (1단계)</h1>
+  <p class="sub">코드로 그린 픽셀 캐릭터와 사무실입니다. 평소엔 책상에서 일하고, 소집하면 걸어서 회의실로 가 앉아 토론합니다. 이미지 파일은 쓰지 않았습니다.</p>
+  <div class="stage" id="stage"><canvas id="cv" width="480" height="272" aria-label="픽셀 사무실 화면"></canvas></div>
+  <div class="bar">
+    <button id="bAuto" class="on" type="button">자동 시연</button>
+    <button id="bMeet" type="button">회의 소집</button>
+    <button id="bBack" type="button">각자 자리로</button>
+    <button id="bSpeed" type="button">속도 x1</button>
+    <span id="status" role="status"></span>
+  </div>
+</main>
+<script>
+(() => {
+'use strict';
+const T = 16, W = 30, H = 17;
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+const stage = document.getElementById('stage');
+const R = (c, x, y, w, h) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), w, h); };
+
+// ---------- 지도: 막힌 칸 ----------
+const blocked = Array.from({ length: H }, () => Array(W).fill(false));
+for (let y = 0; y < 3; y++) for (let x = 0; x < W; x++) blocked[y][x] = true; // 뒷벽
+for (let y = 3; y < H; y++) if (y !== 9 && y !== 10) blocked[y][17] = true; // 유리벽(문: 9~10행)
+const DESKS = [{ x: 2, y: 5 }, { x: 10, y: 5 }, { x: 2, y: 11 }, { x: 10, y: 11 }]; // 책상 4x2칸
+DESKS.forEach((d) => { for (let j = 0; j < 2; j++) for (let i = 0; i < 4; i++) blocked[d.y + j][d.x + i] = true; });
+const TABLE = { x: 21, y: 9, w: 6, h: 3 };
+for (let j = 0; j < TABLE.h; j++) for (let i = 0; i < TABLE.w; i++) blocked[TABLE.y + j][TABLE.x + i] = true;
+[[15, 3], [29, 3], [19, 15]].forEach(([x, y]) => { blocked[y][x] = true; }); // 화분·정수기
+
+// 자리: 책상 앉는 칸(책상 위쪽 한 칸), 회의실 의자
+const deskSeat = DESKS.map((d) => ({ tx: d.x + 1, ty: d.y - 1, dir: 'down', sit: true }));
+const meetSeat = [
+  { tx: 22, ty: 8, dir: 'down', sit: true }, { tx: 25, ty: 8, dir: 'down', sit: true },
+  { tx: 22, ty: 12, dir: 'up', sit: true }, { tx: 25, ty: 12, dir: 'up', sit: true },
+  { tx: 20, ty: 10, dir: 'right', sit: true }, { tx: 27, ty: 10, dir: 'left', sit: true },
+];
+meetSeat.forEach((s) => { blocked[s.ty][s.tx] = false; });
+deskSeat.forEach((s) => { blocked[s.ty][s.tx] = false; });
+
+// ---------- 길찾기(BFS) ----------
+function findPath(from, to) {
+  const key = (x, y) => y * W + x, prev = new Map(), q = [from];
+  prev.set(key(from.tx, from.ty), null);
+  while (q.length) {
+    const c = q.shift();
+    if (c.tx === to.tx && c.ty === to.ty) break;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = c.tx + dx, ny = c.ty + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H || blocked[ny][nx] || prev.has(key(nx, ny))) continue;
+      prev.set(key(nx, ny), c);
+      q.push({ tx: nx, ty: ny });
+    }
+  }
+  if (!prev.has(key(to.tx, to.ty))) return [];
+  const path = [];
+  for (let c = { tx: to.tx, ty: to.ty }; c; c = prev.get(key(c.tx, c.ty))) path.unshift(c);
+  return path.slice(1);
+}
+
+// ---------- 캐릭터 ----------
+const PAL = [
+  { name: 'GPT 1', role: '크레딧 애널리스트', skin: '#f1c9a5', hair: '#2b2118', shirt: '#e9b949', pants: '#2c3e5c', accent: '#10a37f' },
+  { name: 'Gemini', role: '매크로 이코노미스트', skin: '#e8b995', hair: '#14110f', shirt: '#2f4a85', pants: '#3a3f4b', accent: '#4285f4' },
+  { name: 'Claude', role: '리스크 매니저', skin: '#f4d2b5', hair: '#6a3b1f', shirt: '#3f9a63', pants: '#4a4036', accent: '#d97757' },
+  { name: 'GPT 2', role: '펀드매니저', skin: '#d9a982', hair: '#8a8f98', shirt: '#8c8f96', pants: '#27324a', accent: '#10a37f' },
+];
+const chars = PAL.map((p, i) => {
+  const s = deskSeat[i];
+  return { ...p, i, x: s.tx * T + 8, y: s.ty * T + 12, dir: 'down', sit: true, seatDir: 'down', path: [], moving: false, step: 0, typing: true, talking: false, hand: false, bubble: null, arrive: null };
+});
+
+function drawBody(c, x, y, dir, frame, opt) {
+  // x: 가운데, y: 발 바닥. 앉으면 다리 없이 4px 낮춰 그린다.
+  const sit = opt.sit, mouth = opt.talking && Math.floor(opt.t * 8) % 2 === 0;
+  const sw = [0, 1, 0, -1][frame & 3]; // 걸음 흔들림
+  const bob = !sit && (frame & 1) ? -1 : 0;
+  const by = sit ? y + 5 : y + bob;
+  R('rgba(0,0,0,.18)', x - 6, y - 1, 12, 2);
+  if (dir === 'down' || dir === 'up') {
+    if (!sit) {
+      R(c.pants, x - 4, by - 6 + (sw > 0 ? -1 : 0), 3, 5); R(c.pants, x + 1, by - 6 + (sw < 0 ? -1 : 0), 3, 5);
+      R('#222', x - 4, by - 2 + (sw > 0 ? -1 : 0), 3, 2); R('#222', x + 1, by - 2 + (sw < 0 ? -1 : 0), 3, 2);
+    } else R(c.pants, x - 4, by - 6, 8, 4);
+    const ad = sit ? 0 : sw;
+    R(c.shirt, x - 5, by - 14, 10, 8);
+    R(c.shirt, x - 7, by - 14 + (ad > 0 ? 1 : 0), 2, 7); R(c.shirt, x + 5, by - 14 + (ad < 0 ? 1 : 0), 2, 7);
+    if (opt.hand) { R(c.shirt, x + 5, by - 20, 2, 7); R(c.skin, x + 5, by - 22, 2, 2); R(c.skin, x - 7, by - 8, 2, 2); }
+    else { R(c.skin, x - 7, by - 8 + (ad > 0 ? 1 : 0), 2, 2); R(c.skin, x + 5, by - 8 + (ad < 0 ? 1 : 0), 2, 2); }
+    if (dir === 'down') {
+      R(c.skin, x - 4, by - 22, 8, 8);
+      R(c.hair, x - 5, by - 23, 10, 4); R(c.hair, x - 5, by - 21, 1, 4); R(c.hair, x + 4, by - 21, 1, 4);
+      R('#1b1b1b', x - 2, by - 18, 1, 2); R('#1b1b1b', x + 1, by - 18, 1, 2);
+      R(mouth ? '#8a2b2b' : '#b8745a', x - 1, by - 15, 2, 1);
+    } else {
+      R(c.skin, x - 4, by - 22, 8, 8); R(c.hair, x - 5, by - 23, 10, 9);
+    }
+  } else {
+    const s = dir === 'right' ? -1 : 1; // 왼쪽을 기준으로 그리고 오른쪽은 뒤집는다
+    ctx.save();
+    if (s < 0) { ctx.translate(x, 0); ctx.scale(-1, 1); ctx.translate(-x, 0); }
+    const off = sit ? 0 : sw * 2;
+    if (!sit) {
+      R(c.pants, x - 3 + off, by - 6, 3, 5); R(c.pants, x - off, by - 6, 3, 5);
+      R('#222', x - 4 + off, by - 2, 4, 2); R('#222', x - off, by - 2, 4, 2);
+    } else R(c.pants, x - 3, by - 6, 7, 4);
+    R(c.shirt, x - 3, by - 14, 7, 8);
+    R(c.shirt, x - 1 - (sit ? 0 : off), by - 14, 3, 7); R(c.skin, x - 1 - (sit ? 0 : off), by - 8, 3, 2);
+    R(c.skin, x - 4, by - 22, 8, 8); R(c.hair, x - 4, by - 23, 8, 4); R(c.hair, x + 1, by - 21, 3, 6);
+    R('#1b1b1b', x - 3, by - 18, 1, 2); R(c.skin, x - 5, by - 17, 1, 2);
+    R(mouth ? '#8a2b2b' : '#b8745a', x - 3, by - 15, 2, 1);
+    ctx.restore();
+  }
+}
+
+// ---------- 가구 그리기 ----------
+function drawDesk(d, occupied, t) {
+  const x = d.x * T, y = d.y * T;
+  R('rgba(0,0,0,.15)', x + 2, y + 32, 64, 3);
+  R('#b88a56', x, y + 2, 64, 30); R('#d3a76d', x, y, 64, 8); R('#9a7142', x, y + 30, 64, 2);
+  R('#e9e9ee', x + 24, y + 3, 16, 8); // 노트북 뚜껑(뒷면)
+  R('#bfc3cc', x + 24, y + 3, 16, 1); R('#9aa0ab', x + 31, y + 6, 2, 2);
+  R('#7d5a31', x + 6, y + 14, 14, 10); R('#6a4a28', x + 6, y + 14, 14, 1); // 서랍
+  if (!occupied) R('#e9e9ee', x + 24, y + 3, 16, 8);
+  R('#f4f4f6', x + 46, y + 4, 6, 6); R('#d85b4a', x + 47, y + 5, 4, 2); // 머그컵
+}
+function drawChair(sx, sy) { R('#3b4252', sx - 6, sy - 2, 12, 10); R('#4b5468', sx - 5, sy - 3, 10, 3); }
+function drawTable() {
+  const x = TABLE.x * T, y = TABLE.y * T;
+  R('rgba(0,0,0,.18)', x + 2, y + 47, 96, 4);
+  R('#a77b4b', x, y + 3, 96, 45); R('#c99a63', x, y, 96, 40); R('#8f6638', x, y + 44, 96, 4);
+  R('#e9ecf1', x + 40, y + 12, 16, 10); R('#9aa0ab', x + 40, y + 12, 16, 1); // 중앙 문서
+  R('#f4f4f6', x + 12, y + 18, 5, 5); R('#f4f4f6', x + 78, y + 14, 5, 5);
+}
+
+function drawRoom(t) {
+  // 바닥
+  for (let y = 3; y < H; y++) for (let x = 0; x < W; x++) {
+    const meet = x >= 18;
+    R(meet ? ((x + y) % 2 ? '#d9cdb9' : '#d2c5b0') : ((x + y) % 2 ? '#c8d1dc' : '#c1cbd7'), x * T, y * T, T, T);
+  }
+  R('#b3a58d', 20 * T, 7 * T, 8 * T, 7 * T); R('#c4b69e', 20 * T + 2, 7 * T + 2, 8 * T - 4, 7 * T - 4); // 러그
+  // 뒷벽
+  R('#e8ecf1', 0, 0, W * T, 3 * T); R('#4a5468', 0, 3 * T - 4, W * T, 4); R('#cfd5de', 0, 2 * T, W * T, T - 4);
+  const win = (x) => { R('#7a8499', x, 5, 40, 28); R('#bfe0f5', x + 2, 7, 36, 24); R('#e6f4fb', x + 2, 7, 36, 6); R('#7a8499', x + 19, 7, 2, 24); };
+  win(24); win(92); win(168); win(330); win(410);
+  R('#7a8499', 232, 8, 24, 24); R('#fff', 234, 10, 20, 20); R('#2a2f3a', 243, 12, 2, 9); R('#2a2f3a', 243, 19, 7, 2); // 시계
+  R('#e6e9ef', 352, 4, 56, 24); R('#9aa0ab', 352, 4, 56, 1); R('#9aa0ab', 352, 27, 56, 1); // 화이트보드(회의실)
+  R('#4285f4', 357, 9, 20, 2); R('#d97757', 357, 14, 32, 2); R('#10a37f', 357, 19, 14, 2);
+  // 유리벽
+  for (let y = 3; y < H; y++) if (y !== 9 && y !== 10) { R('rgba(160,205,235,.55)', 17 * T + 5, y * T, 6, T); R('rgba(255,255,255,.6)', 17 * T + 5, y * T, 1, T); }
+  R('#4a5468', 17 * T + 3, 3 * T, 10, 3); R('#4a5468', 17 * T + 3, 9 * T - 3, 10, 3); R('#4a5468', 17 * T + 3, 11 * T, 10, 3); R('#4a5468', 17 * T + 3, H * T - 3, 10, 3);
+}
+function drawProp(kind, tx, ty) {
+  const x = tx * T, y = ty * T;
+  if (kind === 'plant') { R('#8a5a3a', x + 3, y + 9, 10, 7); R('#2f8f4e', x + 2, y + 1, 12, 9); R('#3fae62', x + 4, y - 2, 8, 6); R('#2f8f4e', x + 6, y - 4, 4, 4); }
+  else { R('#dfe6ee', x + 3, y + 2, 10, 14); R('#7bb7e6', x + 4, y - 4, 8, 7); R('#a9b3c1', x + 3, y + 12, 10, 4); R('#4a5468', x + 7, y + 5, 2, 2); }
+}
+
+// ---------- 말풍선·이름표(DOM) ----------
+const tagEls = chars.map((c) => {
+  const el = document.createElement('div'); el.className = 'tag';
+  el.innerHTML = `<span class="chip" style="border-color:${c.accent}">${c.name}<small>${c.role}</small></span>`;
+  stage.appendChild(el);
+  const b = document.createElement('div'); b.className = 'bubble'; b.hidden = true; stage.appendChild(b);
+  return { el, b };
+});
+const pct = (v, total) => (v / total * 100).toFixed(2) + '%';
+function syncDom() {
+  chars.forEach((c, i) => {
+    const { el, b } = tagEls[i];
+    const meet = c.x > 17 * T + 8; // 회의실 안: 이름만 작게
+    const below = c.sit && c.dir === 'up'; // 등을 보이고 앉은 사람은 이름표를 아래에
+    const chipH = meet ? 13 : 22;
+    el.classList.toggle('above', !below);
+    el.querySelector('small').hidden = meet;
+    el.style.left = pct(c.x, 480);
+    el.style.top = pct(below ? c.y + 6 : c.y - 25, 272);
+    const bub = c.bubble;
+    b.hidden = !bub;
+    if (bub) {
+      b.style.left = pct(c.x, 480);
+      b.style.top = pct(below ? c.y - 25 : c.y - 25 - chipH - 3, 272);
+      const html = bub === '...' ? '<span class="dots"><i></i><i></i><i></i></span>' : bub;
+      if (b.dataset.v !== bub) { b.innerHTML = html; b.dataset.v = bub; }
+    } else b.dataset.v = '';
+  });
+}
+
+// ---------- 이동 ----------
+let speed = 1, last = 0, clock = 0;
+function update(dt) {
+  clock += dt;
+  for (const c of chars) {
+    if (c.path.length) {
+      const n = c.path[0], tx = n.tx * T + 8, ty = n.ty * T + 12;
+      const dx = tx - c.x, dy = ty - c.y, dist = Math.hypot(dx, dy), stepLen = 56 * speed * dt;
+      c.moving = true; c.sit = false; c.typing = false;
+      if (Math.abs(dx) > Math.abs(dy)) c.dir = dx > 0 ? 'right' : 'left'; else if (dy !== 0) c.dir = dy > 0 ? 'down' : 'up';
+      c.step += dt * 9 * speed;
+      if (dist <= stepLen) { c.x = tx; c.y = ty; c.path.shift(); } else { c.x += dx / dist * stepLen; c.y += dy / dist * stepLen; }
+      if (!c.path.length) { c.moving = false; c.sit = c.target.sit; c.dir = c.target.dir; c.step = 0; if (c.arrive) { const f = c.arrive; c.arrive = null; f(); } }
+    }
+  }
+}
+function render() {
+  drawRoom(clock);
+  const items = [];
+  // 의자
+  [...deskSeat, ...meetSeat].forEach((s) => items.push({ y: s.ty * T + 4, draw: () => drawChair(s.tx * T + 8, s.ty * T + 8) }));
+  DESKS.forEach((d, i) => items.push({ y: d.y * T + 32, draw: () => drawDesk(d, chars[i].sit && chars[i].x === deskSeat[i].tx * T + 8 && chars[i].y === deskSeat[i].ty * T + 12, clock) }));
+  items.push({ y: TABLE.y * T + 48, draw: drawTable });
+  items.push({ y: 3 * T + 16, draw: () => { drawProp('plant', 15, 3); drawProp('plant', 29, 3); } });
+  items.push({ y: 15 * T + 16, draw: () => drawProp('cooler', 19, 15) });
+  chars.forEach((c) => items.push({ y: c.y, draw: () => {
+    const frame = c.moving ? Math.floor(c.step) % 4 : 0;
+    drawBody(c, Math.round(c.x), Math.round(c.y), c.dir, frame, { sit: c.sit, talking: c.talking, hand: c.hand, t: clock });
+  } }));
+  items.sort((a, b) => a.y - b.y).forEach((it) => it.draw());
+  syncDom();
+}
+function loop(ts) {
+  const dt = Math.min(0.05, (ts - last) / 1000 || 0); last = ts;
+  update(dt); render(); requestAnimationFrame(loop);
+}
+
+// ---------- 동작(약속) ----------
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms / speed));
+function goTo(c, seat) {
+  return new Promise((res) => {
+    c.target = seat; c.bubble = null; c.talking = false; c.hand = false;
+    c.path = findPath({ tx: Math.round((c.x - 8) / T), ty: Math.round((c.y - 12) / T) }, seat);
+    if (!c.path.length) { c.sit = seat.sit; c.dir = seat.dir; c.x = seat.tx * T + 8; c.y = seat.ty * T + 12; res(); return; }
+    c.arrive = res;
+  });
+}
+const statusEl = document.getElementById('status');
+const say = (t) => { statusEl.textContent = t; };
+let running = 0; // 시연 중복 방지
+async function meeting() {
+  const id = ++running;
+  const stop = () => id !== running;
+  say('회의를 소집합니다. 각자 회의실로 이동합니다.');
+  await Promise.all(chars.map(async (c, i) => { await sleep(i * 450); if (!stop()) await goTo(c, meetSeat[i]); }));
+  if (stop()) return;
+  say('1라운드: 의견을 나눕니다.');
+  const lines = [['출시를 한 달 늦추는 게 안전합니다.', '신용 위험이 아직 큽니다.'], ['동의합니다. 다만 금리 경로가 변수입니다.', '시장 환경은 나쁘지 않습니다.'], ['법무 검토가 끝나기 전에는 위험합니다.', '단계적 출시를 제안합니다.'], ['비용 대비 효과를 먼저 보죠.', '저는 조건부 찬성입니다.']];
+  for (let r = 0; r < 2 && !stop(); r++) {
+    chars.forEach((c) => { c.bubble = '...'; });
+    await sleep(1400);
+    for (let i = 0; i < chars.length && !stop(); i++) {
+      chars.forEach((c) => { c.talking = false; c.bubble = c === chars[i] ? lines[i][r] : null; });
+      chars[i].talking = true;
+      say(`${chars[i].name}(${chars[i].role}) 발언`);
+      await sleep(2300);
+    }
+    chars.forEach((c) => { c.talking = false; c.bubble = null; });
+    if (r === 0) { say('2라운드: 반박과 보완'); await sleep(800); }
+  }
+  if (stop()) return;
+  say('최종안에 동의하는지 각자 확인합니다.');
+  chars.forEach((c) => { c.hand = true; c.bubble = '동의'; });
+  await sleep(2200);
+  chars.forEach((c) => { c.hand = false; c.bubble = null; });
+  if (stop()) return;
+  say('결론이 나왔습니다. 자리로 돌아갑니다.');
+  await Promise.all(chars.map(async (c, i) => { await sleep(i * 350); if (!stop()) await goTo(c, deskSeat[i]); }));
+  if (stop()) return;
+  chars.forEach((c) => { c.typing = true; });
+  say('각자 자리에서 일하는 중');
+}
+async function goBack() {
+  running++;
+  chars.forEach((c) => { c.bubble = null; c.talking = false; c.hand = false; });
+  await Promise.all(chars.map((c, i) => goTo(c, deskSeat[i])));
+  say('각자 자리에서 일하는 중');
+}
+let auto = true;
+async function autoLoop() {
+  while (true) {
+    if (auto) { await sleep(3200); if (auto) await meeting(); await sleep(2200); } else await new Promise((r) => setTimeout(r, 300));
+  }
+}
+const $ = (id) => document.getElementById(id);
+$('bAuto').addEventListener('click', () => { auto = !auto; $('bAuto').classList.toggle('on', auto); });
+$('bMeet').addEventListener('click', () => { meeting(); });
+$('bBack').addEventListener('click', () => { goBack(); });
+$('bSpeed').addEventListener('click', () => { speed = speed === 1 ? 2 : speed === 2 ? 4 : 1; $('bSpeed').textContent = `속도 x${speed}`; });
+say('각자 자리에서 일하는 중');
+requestAnimationFrame(loop);
+autoLoop();
+window.__pixel = { chars, meeting, goBack };
+})();
+</script>
+</body>
+</html>
