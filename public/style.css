@@ -237,8 +237,3 @@ label.check input { width: auto; margin-top: 3px; }
 
 .p-hint { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
 .half-row[hidden], #reassign[hidden] { display: none; }
-
-.skills-box { margin: 8px 0; }
-.skills-box summary { cursor: pointer; font-weight: 600; }
-.skills-box input[type=text] { flex: 1; min-width: 0; }
-.skill-sel { grid-column: 1 / -1; }

@@ -17,7 +17,6 @@ const { listAllModels, cliModelChoices } = require('./lib/models');
 const { PERSONAS, SAGE } = require('./lib/personas');
 const { scanFolder, saveOutput } = require('./lib/folder');
 const { ROLES, TEAMS, publicRoles } = require('./lib/roles');
-const skills = require('./lib/skills');
 const { estimate } = require('./lib/estimate');
 const { createMinutes } = require('./lib/minutes');
 const os = require('os');
@@ -189,8 +188,7 @@ async function handleCouncil(req, res) {
       // CLI 모드에서 모델을 비우면 CLI 자체 기본 모델을 쓴다.
       const role = ROLES[p.role] ? p.role : '';
       const effort = EFFORTS.includes(p.effort) ? p.effort : ''; // '' = 자동(서비스 기본)
-      const skill = typeof p.skill === 'string' && p.skill ? skills.loadSkill(p.skill.slice(0, 40)) : null;
-      return { id: p.id, provider: p.id.split('-')[0], model: typed, role, effort, skill }; // 비우면 호출 시점에 자동 결정(API: 서비스 목록의 추천, CLI: CLI 기본)
+      return { id: p.id, provider: p.id.split('-')[0], model: typed, role, effort }; // 비우면 호출 시점에 자동 결정(API: 서비스 목록의 추천, CLI: CLI 기본)
     });
   if (!participants.length) return sendJson(res, 400, { error: '참가할 AI를 한 명 이상 선택하세요' });
   const missing = participants.filter((p) => !isConfigured(p.provider, mode)).filter((p, i, a) => a.findIndex((q) => q.provider === p.provider) === i);
@@ -262,15 +260,6 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/config') return sendJson(res, 200, config());
     if (req.method === 'GET' && url.pathname === '/api/models') return sendJson(res, 200, isMock() ? {} : await listAllModels());
     if (req.method === 'POST' && url.pathname.startsWith('/api/') && !sameOrigin(req)) return sendJson(res, 403, { error: '허용되지 않은 요청 출처입니다' });
-    if (req.method === 'GET' && url.pathname === '/api/skills') return sendJson(res, 200, { skills: skills.publicSkills() });
-    if (req.method === 'POST' && url.pathname === '/api/skills/install') {
-      try {
-        const { repo } = JSON.parse((await readBody(req)) || '{}');
-        if (isMock()) return sendJson(res, 400, { error: '데모 모드에서는 설치할 수 없습니다' });
-        const r = await skills.installFromGithub(repo);
-        return sendJson(res, 200, { ...r, skills: skills.publicSkills() });
-      } catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
-    }
     if (req.method === 'POST' && url.pathname === '/api/council') return await handleCouncil(req, res);
     if (req.method === 'POST' && url.pathname === '/api/estimate') return await handleEstimate(req, res);
     if (req.method === 'POST' && url.pathname === '/api/folder/scan') return await handleFolder(req, res, 'scan');
