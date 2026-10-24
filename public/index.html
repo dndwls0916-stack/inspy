@@ -51,6 +51,25 @@
         <p id="profileMsg" class="hint" role="status"></p>
       </details>
 
+      <details id="privacyBox" class="side-box">
+        <summary>개인정보 보호 <small id="privacyState"></small></summary>
+        <p class="hint">AI 로 보내기 전에 전화번호, 주민번호, 이메일, 계좌, 차량번호를 <b>[전화1]</b> 같은 가명으로 바꿉니다. 같은 번호는 같은 가명이라 AI 가 구분은 할 수 있습니다. 회의록에도 가린 글이 저장됩니다.</p>
+        <label class="check"><input type="checkbox" id="redactOn" checked> <span>전송 전에 가리기</span></label>
+        <div class="cat-grid">
+          <label class="check"><input type="checkbox" data-rd="phone" checked> <span>전화번호</span></label>
+          <label class="check"><input type="checkbox" data-rd="rrn" checked> <span>주민번호</span></label>
+          <label class="check"><input type="checkbox" data-rd="email" checked> <span>이메일</span></label>
+          <label class="check"><input type="checkbox" data-rd="account" checked> <span>계좌·긴 번호</span></label>
+          <label class="check"><input type="checkbox" data-rd="plate" checked> <span>차량번호</span></label>
+        </div>
+        <label class="field">가릴 이름·단어 <small>한 줄에 하나(기사 이름 등)</small>
+          <textarea id="redactNames" rows="4" spellcheck="false" placeholder="홍길동&#10;김철수"></textarea>
+        </label>
+        <button type="button" id="redactPreviewBtn" class="ghost">지금 질문·첨부로 미리보기</button>
+        <div id="redactPreview" class="redact-preview" role="status"></div>
+        <p class="hint">찾지 못하는 것: 주소, 목록에 없는 이름, 이미지 속 글자. 중요한 자료는 미리보기로 확인하세요.</p>
+      </details>
+
       <h2>회의 설정</h2>
       <label class="field">토론 라운드
         <select id="rounds">
@@ -93,6 +112,7 @@
       </div>
       </div>
       <form id="form" class="composer">
+        <div id="ctxChips" class="ctx-chips" hidden></div>
         <details id="agendaBox" class="agenda-box">
           <summary><span>안건 양식</span><select id="agendaForm" aria-label="안건 양식"></select></summary>
           <div id="agendaFields" class="agenda-fields"></div>
@@ -102,6 +122,7 @@
           <button type="button" id="attachBtn" class="attach-btn" title="파일 첨부 (끌어다 놓아도 됩니다)">첨부</button>
           <input type="file" id="fileInput" multiple hidden accept=".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.xml,.html,.htm,.css,.js,.mjs,.ts,.tsx,.jsx,.py,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.bat,.ps1,.sql,.yml,.yaml,.toml,.ini,.cfg,.conf,.log,.srt,.vtt,.tex,.pdf,.docx">
           <button type="button" id="folderBtn" class="attach-btn" title="폴더를 지정해 안의 문서를 읽게 합니다">폴더</button>
+          <button type="button" id="pastBtn" class="attach-btn" title="저장된 지난 회의록을 찾아 이번 회의에 이어 갑니다">지난 회의</button>
           <span id="attachList" class="chips"></span>
           <span id="attachMsg" class="attach-msg" role="status"></span>
         </div>
@@ -124,6 +145,11 @@
       </form>
     </main>
   </div>
+  <dialog id="pastDlg" class="past-dlg" aria-label="지난 회의">
+  <form method="dialog" class="past-head"><strong>지난 회의 찾기</strong><button class="ghost" value="close">닫기</button></form>
+  <input id="pastQ" type="search" placeholder="제목, 질문, 결론, 역할에서 찾기 (예: 간선 지연)" autocomplete="off" aria-label="지난 회의 검색">
+  <div id="pastList" class="past-list" role="list"></div>
+</dialog>
   <script src="pixel-office.js"></script>
   <script src="app.js"></script>
 </body>

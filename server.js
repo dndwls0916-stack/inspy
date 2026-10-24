@@ -19,8 +19,9 @@ const { scanFolder, saveOutput } = require('./lib/folder');
 const { ROLES, TEAMS, publicRoles } = require('./lib/roles');
 const { estimate } = require('./lib/estimate');
 const profile = require('./lib/profile');
+const { redactRequest } = require('./lib/redact');
 const { FORMS } = require('./lib/forms_logistics');
-const { createMinutes } = require('./lib/minutes');
+const { createMinutes, listMinutes, readMinutes } = require('./lib/minutes');
 const os = require('os');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -170,6 +171,25 @@ async function handleEstimate(req, res) {
 }
 const clampCalls = (v) => Math.min(MAX_CALLS_LIMIT, Math.max(10, Math.floor(Number(v)) || DEFAULT_MAX_CALLS));
 
+// 화면에서 온 가리기 설정을 검사해 안전한 값으로 만든다.
+function redactOptions(ro) {
+  const cats = {};
+  for (const k of ['rrn', 'phone', 'email', 'account', 'plate']) if (ro.categories && ro.categories[k] === false) cats[k] = false;
+  const names = (Array.isArray(ro.names) ? ro.names : String(ro.names || '').split(/\r?\n/)).slice(0, 200).map((n) => String(n).slice(0, 40));
+  return { categories: cats, names };
+}
+
+// 미리보기: 이 회의를 시작하면 무엇이 가려져서 나가는지 알려 준다(가린 글 자체는 돌려주지 않고 건수와 몇 개의 예만).
+async function handleRedactPreview(req, res) {
+  let b;
+  try { b = JSON.parse(await readBody(req, 6_000_000)); } catch { return sendJson(res, 400, { error: '잘못된 요청입니다' }); }
+  const atts = (Array.isArray(b.attachments) ? b.attachments : []).slice(0, MAX_ATTACH_FILES).map((a) => ({ name: String(a?.name || '').slice(0, 200), text: String(a?.text || '') }));
+  if (b.useProfile !== false) { const pa = profile.profileAttachment(); if (pa) atts.unshift(pa); }
+  const pinned = (Array.isArray(b.pinned) ? b.pinned : []).slice(0, 3).map((h) => ({ question: String(h.question || '').slice(0, 500), conclusion: String(h.conclusion || '').slice(0, 3000) }));
+  const rr = redactRequest({ question: String(b.question || '').slice(0, 8000), attachments: atts, history: pinned }, redactOptions(b.redact || {}));
+  return sendJson(res, 200, { report: rr.report });
+}
+
 async function handleCouncil(req, res) {
   let body;
   try {
@@ -227,9 +247,14 @@ async function handleCouncil(req, res) {
   if (maxCalls < minCalls) return sendJson(res, 400, { error: `호출 상한(${maxCalls}회)이 너무 작습니다. 이 구성은 최소 ${minCalls}회가 필요합니다` });
   if (activeMeetings >= MAX_MEETINGS) return sendJson(res, 429, { error: `이미 회의가 ${activeMeetings}개 진행 중입니다. 끝난 뒤에 시작하세요(동시 최대 ${MAX_MEETINGS}개)` });
   const moderator = participants.some((p) => p.id === body.moderator) ? body.moderator : participants[0].id;
-  const history = (Array.isArray(body.history) ? body.history : [])
+  // 이전 회의: 사용자가 "지난 회의"에서 골라 연결한 것(pinned, 최대 3개)과 이번 화면에서 방금 한 회의(최대 3개)
+  const pinned = (Array.isArray(body.pinned) ? body.pinned : [])
+    .slice(0, 3)
+    .map((h) => ({ question: String(h.question || '').slice(0, 500), conclusion: String(h.conclusion || '').slice(0, 3000) }));
+  const recent = (Array.isArray(body.history) ? body.history : [])
     .slice(-3)
     .map((h) => ({ question: String(h.question || '').slice(0, 500), conclusion: String(h.conclusion || '').slice(0, 1500) }));
+  const history0 = [...pinned, ...recent];
 
   res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive' });
   const ac = new AbortController();
@@ -237,16 +262,25 @@ async function handleCouncil(req, res) {
   // 회의록: 이벤트를 받을 때마다 파일에 남기므로 중간에 끊기거나 오류가 나도 그때까지의 기록이 남는다.
   // 회사 정보는 첨부 자료처럼 맨 앞에 들어간다(꺼 둘 수 있다). 용량 검사는 위에서 사용자 첨부에만 적용한다.
   if (body.useProfile !== false) { const pa = profile.profileAttachment(); if (pa) attachments.unshift(pa); }
-  const minutes = body.saveMinutes !== false && process.env.NO_MINUTES !== '1' ? createMinutes({ dir: minutesDir(), question, attachments: attachments.map((a) => a.name), mode }) : null;
+  // 개인정보 가리기: AI 로 보내는 질문·첨부·이전 회의에서 전화번호 등을 가명으로 바꾼다(기본 켜짐). 회의록에도 가린 글이 남는다.
+  const ro = body.redact && typeof body.redact === 'object' ? body.redact : {};
+  let q2 = question, atts = attachments, history = history0, redaction = null;
+  if (ro.enabled !== false) {
+    const rr = redactRequest({ question, attachments, history: history0 }, redactOptions(ro));
+    q2 = rr.question; atts = rr.attachments; history = rr.history;
+    if (rr.report.total) redaction = { type: 'redaction', total: rr.report.total, counts: rr.report.counts };
+  }
+  const minutes = body.saveMinutes !== false && process.env.NO_MINUTES !== '1' ? createMinutes({ dir: minutesDir(), question: q2, attachments: atts.map((a) => a.name), mode }) : null;
   const emit = (ev) => {
     minutes?.push(ev);
     if (!res.writableEnded) res.write(`data: ${JSON.stringify(ev)}\n\n`);
   };
+  if (redaction) emit(redaction);
 
   activeMeetings++;
   let status = '완료';
   try {
-    await runCouncil({ question, participants, attachments, rounds, consensus, unlimited, maxRounds, maxCalls, moderator, history, mode, persona: body.persona === true, emit, signal: ac.signal });
+    await runCouncil({ question: q2, participants, attachments: atts, rounds, consensus, unlimited, maxRounds, maxCalls, moderator, history, mode, persona: body.persona === true, emit, signal: ac.signal });
   } catch (err) {
     status = '오류로 종료';
     emit({ type: 'error', error: String(err.message || err) });
@@ -270,6 +304,12 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/profile') {
       try { const { text } = JSON.parse((await readBody(req, 100_000)) || '{}'); return sendJson(res, 200, { text: profile.writeProfile(text) }); }
       catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
+    }
+    if (req.method === 'POST' && url.pathname === '/api/redact/preview') return await handleRedactPreview(req, res);
+    if (req.method === 'GET' && url.pathname === '/api/minutes') return sendJson(res, 200, { items: listMinutes(minutesDir(), { q: String(url.searchParams.get('q') || '').slice(0, 100) }) });
+    if (req.method === 'GET' && url.pathname === '/api/minutes/item') {
+      const it = readMinutes(minutesDir(), String(url.searchParams.get('id') || '').slice(0, 200));
+      return it ? sendJson(res, 200, it) : sendJson(res, 404, { error: '회의록을 찾을 수 없습니다' });
     }
     if (req.method === 'POST' && url.pathname === '/api/council') return await handleCouncil(req, res);
     if (req.method === 'POST' && url.pathname === '/api/estimate') return await handleEstimate(req, res);
