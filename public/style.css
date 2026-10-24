@@ -301,3 +301,24 @@ body.office-on #feed > .round { display: none; }
 .md-table table { border-collapse: collapse; font-size: 13px; width: 100%; }
 .md-table th, .md-table td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
 .md-table th { background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
+
+/* --- 개인정보 보호 · 지난 회의 --- */
+.cat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; margin: 6px 0; }
+.redact-preview { margin-top: 8px; font-size: 13px; }
+.redact-preview ul { margin: 6px 0 0; padding-left: 18px; }
+.redact-preview s { color: var(--muted); }
+.redaction-note { border-color: #b7791f; }
+.ctx-chips { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+.ctx-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border: 1px solid var(--accent); border-radius: 999px; font-size: 13px; background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
+.ctx-chip button { border: 0; background: transparent; color: inherit; font-size: 16px; line-height: 1; padding: 0 6px; cursor: pointer; width: auto; }
+.past-dlg { width: min(720px, 94vw); max-height: 80vh; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); padding: 16px; }
+.past-dlg::backdrop { background: rgba(0,0,0,.45); }
+.past-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.past-head button { width: auto; padding: 4px 12px; }
+#pastQ { width: 100%; margin-bottom: 10px; }
+.past-list { display: flex; flex-direction: column; gap: 8px; max-height: 58vh; overflow-y: auto; }
+.past-item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.past-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.past-top small, .past-sub { color: var(--muted); font-size: 12px; }
+.past-body { margin: 6px 0 8px; font-size: 13px; line-height: 1.5; }
+.past-item button { width: auto; padding: 4px 14px; }

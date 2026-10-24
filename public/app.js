@@ -658,6 +658,7 @@ function handle(ev, ctx) {
     }
     case 'budget': add(`<div class="msg-head">호출 상한 <small>${esc(ev.used)}/${esc(ev.max)}회</small></div><div class="msg-body"><p>${esc(ev.message)}</p></div>`, 'budget-card'); break;
     case 'usage': add(`AI 호출 ${esc(ev.calls)}${ev.maxCalls ? ` / 상한 ${esc(ev.maxCalls)}` : ''}회 사용`, 'minutes-note'); break;
+    case 'redaction': add(`개인정보 ${esc(ev.total)}건을 가려서 AI 에 보냈습니다 (${Object.entries(ev.counts).map(([k, v]) => `${esc(k)} ${esc(v)}`).join(', ')})`, 'minutes-note redaction-note'); break;
     case 'minutes': add(`회의록 저장됨: ${esc(ev.path)}`, 'minutes-note'); break;
     case 'done': ctx.done = true; break;
     case 'error': add(`<div>${esc(ev.error)}</div>`, 'err'); break;
@@ -714,6 +715,8 @@ async function runMeeting(question) {
         maxCalls: Number($('maxCalls').value),
         saveMinutes: $('saveMinutes').checked,
         useProfile: $('useProfile').checked,
+        redact: redactBody(),
+        pinned: pinned.map(({ question, conclusion }) => ({ question, conclusion })),
         history,
       }),
     });
@@ -779,6 +782,8 @@ $('reset').addEventListener('click', () => {
   attachMsg('');
   controller?.abort();
   history = [];
+  pinned = [];
+  renderChips();
   agenda = '의제를 올려 주세요';
   refreshStage();
   feed.innerHTML = '<div class="empty">새 회의를 시작합니다. 질문을 입력하세요.</div>';
@@ -870,7 +875,7 @@ async function updateEstimate() {
   if (!n) { el.textContent = ''; return; }
   try {
     const maxCalls = Number($('maxCalls').value);
-    const r = await postJson('/api/estimate', { n, ...roundsBody(), persona: sg, chars: qEl.value.length + totalChars() + agendaChars() + profileChars(), maxCalls });
+    const r = await postJson('/api/estimate', { n, ...roundsBody(), persona: sg, chars: qEl.value.length + totalChars() + agendaChars() + profileChars() + pinned.reduce((n, p) => n + p.conclusion.length, 0), maxCalls });
     const k = (x) => (x < 1000 ? `${x}` : x < 1e6 ? `${Math.round(x / 100) / 10}천` : `${Math.round(x / 1e5) / 10}백만`);
     const calls = r.calls.min === r.calls.max ? `<b>${r.calls.max}회</b>` : `<b>${r.calls.min}~${r.calls.max}회</b>`;
     el.className = 'estimate' + (r.calls.capped || r.calls.max >= 100 ? ' warn' : '');
@@ -1055,3 +1060,84 @@ $('profileTemplate').addEventListener('click', () => {
 $('useProfile').addEventListener('change', () => { try { localStorage.setItem('useProfile', $('useProfile').checked ? '1' : '0'); } catch {} profileState(); scheduleEstimate(); });
 $('profileText').addEventListener('input', profileState);
 loadProfile();
+
+// --- 개인정보 보호 ---
+const RD_KEYS = ['phone', 'rrn', 'email', 'account', 'plate'];
+function redactBody() {
+  const categories = {};
+  document.querySelectorAll('[data-rd]').forEach((c) => { if (!c.checked) categories[c.dataset.rd] = false; });
+  return { enabled: $('redactOn').checked, categories, names: $('redactNames').value.split('\n').map((x) => x.trim()).filter(Boolean) };
+}
+function privacyState() {
+  const n = $('redactNames').value.split('\n').filter((x) => x.trim()).length;
+  $('privacyState').textContent = $('redactOn').checked ? `(켜짐${n ? `, 이름 ${n}개` : ''})` : '(꺼짐)';
+}
+function savePrivacy() {
+  try { localStorage.setItem('redact', JSON.stringify({ on: $('redactOn').checked, cats: RD_KEYS.filter((k) => !document.querySelector(`[data-rd=${k}]`).checked), names: $('redactNames').value })); } catch {}
+  privacyState();
+}
+(function loadPrivacy() {
+  try {
+    const v = JSON.parse(localStorage.getItem('redact') || 'null');
+    if (v) { $('redactOn').checked = v.on !== false; (v.cats || []).forEach((k) => { const c = document.querySelector(`[data-rd=${k}]`); if (c) c.checked = false; }); $('redactNames').value = v.names || ''; }
+  } catch {}
+  privacyState();
+})();
+$('redactOn').addEventListener('change', savePrivacy);
+document.querySelectorAll('[data-rd]').forEach((c) => c.addEventListener('change', savePrivacy));
+$('redactNames').addEventListener('input', savePrivacy);
+$('redactPreviewBtn').addEventListener('click', async () => {
+  const box = $('redactPreview');
+  box.textContent = '확인하는 중…';
+  try {
+    const r = await postJson('/api/redact/preview', {
+      question: buildQuestion(qEl.value.trim()) || qEl.value,
+      attachments: attachments.map(({ name, text }) => ({ name, text })),
+      useProfile: $('useProfile').checked,
+      pinned: pinned.map(({ question, conclusion }) => ({ question, conclusion })),
+      redact: redactBody(),
+    });
+    const rep = r.report;
+    if (!$('redactOn').checked) { box.textContent = '가리기가 꺼져 있어 원문이 그대로 전송됩니다.'; return; }
+    if (!rep.total) { box.textContent = '가릴 개인정보를 찾지 못했습니다. (주소와 목록에 없는 이름은 찾지 못합니다)'; return; }
+    box.innerHTML = `<b>${esc(rep.total)}건</b>을 가려서 보냅니다: ${Object.entries(rep.counts).map(([k, v]) => `${esc(k)} ${esc(v)}`).join(', ')}<ul>${rep.samples.map((x) => `<li><small>${esc(x.type)}</small> <s>${esc(x.before)}</s> → <b>${esc(x.after)}</b></li>`).join('')}</ul>`;
+  } catch (e) { box.textContent = '미리보기 실패: ' + e.message; }
+});
+
+// --- 지난 회의: 저장된 회의록을 찾아 이번 회의에 맥락으로 연결 ---
+let pinned = []; // { id, title, question, conclusion }
+function renderChips() {
+  const box = $('ctxChips');
+  box.hidden = !pinned.length;
+  box.innerHTML = pinned.map((p, i) => `<span class="ctx-chip" title="${esc(p.question.slice(0, 200))}">이어 가는 회의: <b>${esc(p.title)}</b><button type="button" data-unpin="${i}" aria-label="${esc(p.title)} 연결 해제">×</button></span>`).join('');
+  box.querySelectorAll('[data-unpin]').forEach((b) => b.addEventListener('click', () => { pinned.splice(Number(b.dataset.unpin), 1); renderChips(); scheduleEstimate(); }));
+  scheduleEstimate();
+}
+const fmtDate = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+let pastTimer = 0;
+async function loadPast() {
+  const list = $('pastList');
+  try {
+    const r = await (await fetch('/api/minutes?q=' + encodeURIComponent($('pastQ').value.trim()))).json();
+    if (!r.items.length) { list.innerHTML = '<p class="hint">저장된 회의록이 없거나 찾는 내용이 없습니다. 회의록은 실행파일 옆 <b>회의록</b> 폴더에 저장됩니다.</p>'; return; }
+    list.innerHTML = r.items.map((it) => `<div class="past-item" role="listitem">
+      <div class="past-top"><b>${esc(it.title)}</b><small>${esc(fmtDate(it.startedAt))} · ${esc(it.status)}${it.consensus ? ` · ${esc(it.consensus)}` : ''}</small></div>
+      <div class="past-sub">${esc(it.participants.slice(0, 6).join(', '))}</div>
+      <div class="past-body">${it.hasConclusion ? esc(it.conclusion) : '<i>결론이 없는 회의입니다</i>'}</div>
+      <button type="button" class="ghost" data-past="${esc(it.id)}" ${it.hasConclusion ? '' : 'disabled'}>이어 가기</button></div>`).join('');
+    list.querySelectorAll('[data-past]').forEach((b) => b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        const it = await (await fetch('/api/minutes/item?id=' + encodeURIComponent(b.dataset.past))).json();
+        if (!it.conclusion) throw new Error('결론을 읽지 못했습니다');
+        if (pinned.length >= 3) pinned.shift();
+        pinned.push({ id: it.id, title: it.title, question: it.question, conclusion: it.conclusion });
+        renderChips();
+        $('pastDlg').close();
+        qEl.focus();
+      } catch (e) { b.disabled = false; b.textContent = '실패: ' + e.message; }
+    }));
+  } catch { list.innerHTML = '<p class="hint">회의록 목록을 불러오지 못했습니다.</p>'; }
+}
+$('pastBtn').addEventListener('click', () => { $('pastDlg').showModal(); $('pastQ').value = ''; loadPast(); $('pastQ').focus(); });
+$('pastQ').addEventListener('input', () => { clearTimeout(pastTimer); pastTimer = setTimeout(loadPast, 250); });
