@@ -24,6 +24,14 @@ const groups = new Set(publicRoles().map((r) => r.group));
 assert(['경영·의사결정', '주식투자팀', '법무·리스크·감사', '기술·제품', '사업·고객', '운영·인사', '관점·진행'].every((g) => groups.has(g)));
 const pr = publicRoles();
 assert.deepEqual(pr.map((r) => r.group).filter((g, i, a) => a.indexOf(g) === i && a.lastIndexOf(g) === a.map((x, j) => (x === g ? j : -1)).filter((j) => j >= 0).pop()), [...new Set(pr.map((r) => r.group))], '그룹은 한 덩어리로 묶여 있다');
+// 물류운송 회사 역할·팀(직무기술서 기반)
+for (const id of ['dispatcher', 'emergency_dispatch', 'camp_ops', 'delivery_quality', 'driver_manager', 'logi_cs', 'settlement', 'kam', 'vehicle_admin', 'logi_biz_dev', 'logi_safety', 'labor_risk', 'ops_analyst', 'driver_voice']) {
+  assert.equal(ROLES[id]?.group, '물류운송', id);
+  assert(ROLES[id].caution.includes('확인 필요'), `${id}: 문서에 없는 수치·법규를 지어내지 않게 지시`);
+}
+assert(TEAMS.filter((t) => t.group === '물류운송').length >= 8, '물류운송 팀 프리셋');
+assert(roleBlock('dispatcher').includes('완편율') && roleBlock('settlement').includes('정산'), '직무기술서의 KPI 용어 반영');
+assert.equal(TEAMS[0].group, '물류운송', '물류운송 팀이 목록 맨 앞');
 assert.equal(roleBlock(''), '');
 assert.equal(roleBlock('nope'), '');
 assert(publicRoles().every((r) => !('checks' in r) && !('caution' in r)), '화면에는 관점 요약만');

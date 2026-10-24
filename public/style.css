@@ -239,9 +239,22 @@ label.check input { width: auto; margin-top: 3px; }
 .half-row[hidden], #reassign[hidden] { display: none; }
 
 /* --- 사무실 / 회의실: 픽셀 오피스 --- */
-.office { padding: 14px 24px 0; }
+.workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(340px, .8fr); }
+body.sg .workspace { grid-template-columns: minmax(0, 1fr); }
+.office { display: flex; flex-direction: column; min-height: 0; padding: 14px 16px 10px 24px; }
 .office[hidden] { display: none; }
-.office-stage { margin: 0 auto; width: 100%; max-width: min(100%, calc(78vh * var(--px-ratio, 1.8))); }
+.office-box { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.office-stage { max-width: 100%; }
+.workspace .feed { border-left: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 60%, var(--bg)); padding: 16px 20px; min-height: 0; }
+@container (max-width: 520px) { .px-chip small { display: none; } }
+/* 좁은 화면: 위에 사무실, 아래에 토론 */
+@media (max-width: 1100px) {
+  .workspace { display: flex; flex-direction: column; }
+  .office { flex: none; padding: 12px 16px 0; }
+  .office-box { flex: none; display: block; }
+  .office-stage { margin: 0 auto; width: 100%; max-width: min(100%, calc(40vh * var(--px-ratio, 1.8))); }
+  .workspace .feed { flex: 1; min-height: 140px; border-left: 0; border-top: 1px solid var(--line); }
+}
 .pixel-stage { container-type: inline-size; position: relative; width: 100%; border: 2px solid #3b4254; border-radius: 10px; overflow: hidden; background: #222; }
 .pixel-stage canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
 .px-overlay { position: absolute; inset: 0; pointer-events: none; }
@@ -263,10 +276,28 @@ label.check input { width: auto; margin-top: 3px; }
 .live-dot.on { background: var(--accent); animation: dot-pulse 1.2s ease-in-out infinite; }
 @keyframes dot-pulse { 50% { opacity: .35; } }
 .office-bar button { padding: 4px 10px; font-size: 12px; width: auto; flex: none; }
-.office-caption { margin-top: 6px; padding: 8px 12px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--c, var(--accent)); font-size: 14px; line-height: 1.5; }
+.office-caption[hidden] { display: block; visibility: hidden; }
+.office-caption { min-height: 3.6em; margin-top: 6px; padding: 8px 12px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--c, var(--accent)); font-size: 14px; line-height: 1.5; }
 .office-caption b { margin-right: 8px; }
 /* 사무실 화면에서는 토론 원문을 접어 두고, 질문·결론·오류·알림만 보인다 */
 body.office-on #feed > .msg:not(.user):not(.final):not(.err):not(.budget-card):not(.minutes-note),
 body.office-on #feed > .round { display: none; }
-@media (max-width: 760px) { .office { padding: 10px 12px 0; } }
+
 @media (prefers-reduced-motion: reduce) { .px-dots i, .live-dot.on { animation: none; } }
+
+/* --- 회사 정보 · 안건 양식 · 표 --- */
+.side-box { margin: 10px 0; }
+.side-box summary { cursor: pointer; font-weight: 600; }
+.side-box summary small { font-weight: 400; color: var(--muted); }
+#profileText { width: 100%; font: 13px/1.5 ui-monospace, "Cascadia Mono", "Malgun Gothic", monospace; resize: vertical; }
+.agenda-box { flex: 1 1 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 6px 10px; }
+.agenda-box summary { display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; list-style: none; }
+.agenda-box summary::-webkit-details-marker { display: none; }
+.agenda-box summary select { max-width: 320px; font-size: 13px; padding: 4px 8px; }
+.agenda-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px 12px; margin: 10px 0 4px; max-height: 26vh; overflow-y: auto; }
+.agenda-field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
+.agenda-field input { font-size: 14px; padding: 6px 8px; }
+.md-table { overflow-x: auto; margin: 8px 0; }
+.md-table table { border-collapse: collapse; font-size: 13px; width: 100%; }
+.md-table th, .md-table td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
+.md-table th { background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
