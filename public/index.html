@@ -42,6 +42,15 @@
       </div>
       <p class="hint">역할을 고르면 그 직업 전문가의 관점과 점검 항목으로 발언합니다. <b>생각 깊이</b>는 AI가 답하기 전에 얼마나 깊이 따져 볼지입니다(높을수록 느리고 사용량이 늘어납니다).</p>
 
+      <details id="profileBox" class="side-box">
+        <summary>회사 정보 <small id="profileState"></small></summary>
+        <p class="hint">우리 회사의 사업, 조직, KPI 산식을 적어 두면 모든 회의에 자료로 자동 첨부됩니다. 실행파일 옆 <b>회사정보.md</b> 파일로 저장되고 메모장으로도 고칠 수 있습니다. (AI에 전송되니 개인정보·비밀번호는 적지 마세요)</p>
+        <textarea id="profileText" rows="9" aria-label="회사 정보" spellcheck="false"></textarea>
+        <div class="half-row"><button type="button" id="profileSave" class="ghost">저장</button><button type="button" id="profileTemplate" class="ghost">예시 넣기</button></div>
+        <label class="check"><input type="checkbox" id="useProfile" checked> <span>회의에 사용</span></label>
+        <p id="profileMsg" class="hint" role="status"></p>
+      </details>
+
       <h2>회의 설정</h2>
       <label class="field">토론 라운드
         <select id="rounds">
@@ -84,6 +93,11 @@
       </div>
       </div>
       <form id="form" class="composer">
+        <details id="agendaBox" class="agenda-box">
+          <summary><span>안건 양식</span><select id="agendaForm" aria-label="안건 양식"></select></summary>
+          <div id="agendaFields" class="agenda-fields"></div>
+          <p class="hint">빈 칸은 "미확인"으로 전달됩니다. 모르는 것을 0이나 없음으로 가정하지 않습니다.</p>
+        </details>
         <div class="attach-bar">
           <button type="button" id="attachBtn" class="attach-btn" title="파일 첨부 (끌어다 놓아도 됩니다)">첨부</button>
           <input type="file" id="fileInput" multiple hidden accept=".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.xml,.html,.htm,.css,.js,.mjs,.ts,.tsx,.jsx,.py,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.bat,.ps1,.sql,.yml,.yaml,.toml,.ini,.cfg,.conf,.log,.srt,.vtt,.tex,.pdf,.docx">

@@ -284,3 +284,20 @@ body.office-on #feed > .msg:not(.user):not(.final):not(.err):not(.budget-card):n
 body.office-on #feed > .round { display: none; }
 
 @media (prefers-reduced-motion: reduce) { .px-dots i, .live-dot.on { animation: none; } }
+
+/* --- 회사 정보 · 안건 양식 · 표 --- */
+.side-box { margin: 10px 0; }
+.side-box summary { cursor: pointer; font-weight: 600; }
+.side-box summary small { font-weight: 400; color: var(--muted); }
+#profileText { width: 100%; font: 13px/1.5 ui-monospace, "Cascadia Mono", "Malgun Gothic", monospace; resize: vertical; }
+.agenda-box { flex: 1 1 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 6px 10px; }
+.agenda-box summary { display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; list-style: none; }
+.agenda-box summary::-webkit-details-marker { display: none; }
+.agenda-box summary select { max-width: 320px; font-size: 13px; padding: 4px 8px; }
+.agenda-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px 12px; margin: 10px 0 4px; max-height: 26vh; overflow-y: auto; }
+.agenda-field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
+.agenda-field input { font-size: 14px; padding: 6px 8px; }
+.md-table { overflow-x: auto; margin: 8px 0; }
+.md-table table { border-collapse: collapse; font-size: 13px; width: 100%; }
+.md-table th, .md-table td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
+.md-table th { background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }

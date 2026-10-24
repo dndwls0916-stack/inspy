@@ -18,6 +18,8 @@ const { PERSONAS, SAGE } = require('./lib/personas');
 const { scanFolder, saveOutput } = require('./lib/folder');
 const { ROLES, TEAMS, publicRoles } = require('./lib/roles');
 const { estimate } = require('./lib/estimate');
+const profile = require('./lib/profile');
+const { FORMS } = require('./lib/forms_logistics');
 const { createMinutes } = require('./lib/minutes');
 const os = require('os');
 
@@ -97,6 +99,8 @@ function config() {
     minutesDefault: process.env.NO_MINUTES !== '1',
     roles: publicRoles(),
     teams: TEAMS,
+    forms: FORMS,
+    profileTemplate: profile.TEMPLATE,
     providers: Object.entries(PROVIDERS).map(([id, p]) => ({
       id,
       label: p.label,
@@ -231,6 +235,8 @@ async function handleCouncil(req, res) {
   const ac = new AbortController();
   res.on('close', () => ac.abort());
   // 회의록: 이벤트를 받을 때마다 파일에 남기므로 중간에 끊기거나 오류가 나도 그때까지의 기록이 남는다.
+  // 회사 정보는 첨부 자료처럼 맨 앞에 들어간다(꺼 둘 수 있다). 용량 검사는 위에서 사용자 첨부에만 적용한다.
+  if (body.useProfile !== false) { const pa = profile.profileAttachment(); if (pa) attachments.unshift(pa); }
   const minutes = body.saveMinutes !== false && process.env.NO_MINUTES !== '1' ? createMinutes({ dir: minutesDir(), question, attachments: attachments.map((a) => a.name), mode }) : null;
   const emit = (ev) => {
     minutes?.push(ev);
@@ -260,6 +266,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/config') return sendJson(res, 200, config());
     if (req.method === 'GET' && url.pathname === '/api/models') return sendJson(res, 200, isMock() ? {} : await listAllModels());
     if (req.method === 'POST' && url.pathname.startsWith('/api/') && !sameOrigin(req)) return sendJson(res, 403, { error: '허용되지 않은 요청 출처입니다' });
+    if (req.method === 'GET' && url.pathname === '/api/profile') return sendJson(res, 200, { text: profile.readProfile(), max: profile.MAX_SAVE });
+    if (req.method === 'POST' && url.pathname === '/api/profile') {
+      try { const { text } = JSON.parse((await readBody(req, 100_000)) || '{}'); return sendJson(res, 200, { text: profile.writeProfile(text) }); }
+      catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
+    }
     if (req.method === 'POST' && url.pathname === '/api/council') return await handleCouncil(req, res);
     if (req.method === 'POST' && url.pathname === '/api/estimate') return await handleEstimate(req, res);
     if (req.method === 'POST' && url.pathname === '/api/folder/scan') return await handleFolder(req, res, 'scan');

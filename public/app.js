@@ -30,7 +30,16 @@ function md(text) {
   const out = [];
   let list = null, code = null;
   const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  let tbl = null;
+  const flushTable = () => {
+    if (!tbl) return;
+    const rows = tbl.filter((r) => !/^\s*\|?\s*:?-{2,}/.test(r)).map((r) => r.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim()));
+    if (rows.length) out.push(`<div class="md-table"><table><thead><tr>${rows[0].map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${rows.slice(1).map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+    tbl = null;
+  };
   for (const line of text.split('\n')) {
+    if (code === null && /^\s*\|.*\|\s*$/.test(line)) { closeList(); (tbl ||= []).push(line); continue; }
+    flushTable();
     if (/^```/.test(line)) {
       if (code === null) { closeList(); code = []; } else { out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`); code = null; }
       continue;
@@ -43,6 +52,7 @@ function md(text) {
     else if (!line.trim()) closeList();
     else { closeList(); out.push(`<p>${inline(line)}</p>`); }
   }
+  flushTable();
   if (code !== null) out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`);
   closeList();
   return out.join('');
@@ -335,6 +345,7 @@ $('team').addEventListener('change', () => {
     }
   }
   $('team').value = '';
+  { const t = cfgTeams.find((x) => x.id === v); if (t?.form && $('agendaForm')) { $('agendaForm').value = t.form; renderAgenda(true); } }
   renderParticipants(true); // 방금 정한 역할을 이전 화면 값으로 덮어쓰지 않는다
   syncSg();
 });
@@ -702,6 +713,7 @@ async function runMeeting(question) {
         moderator: $('moderator').value,
         maxCalls: Number($('maxCalls').value),
         saveMinutes: $('saveMinutes').checked,
+        useProfile: $('useProfile').checked,
         history,
       }),
     });
@@ -751,9 +763,12 @@ function setBusy(b) {
 
 form.addEventListener('submit', (e) => {
   e.preventDefault();
-  const q = qEl.value.trim();
-  if (!q || controller && !stopBtn.hidden) return;
+  if (controller && !stopBtn.hidden) return;
+  const q = buildQuestion(qEl.value.trim());
+  if (!q) return;
   qEl.value = '';
+  clearAgendaValues();
+  $('agendaBox').open = false; // 보낸 뒤에는 접어서 화면을 넓게 쓴다
   runMeeting(q);
 });
 qEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) form.requestSubmit(); });
@@ -831,6 +846,8 @@ fetch('/api/config').then((r) => r.json()).then((cfg) => {
   }
   cfgRoles = cfg.roles || [];
   cfgTeams = cfg.teams || [];
+  profileTemplate = cfg.profileTemplate || '';
+  loadForms(cfg.forms);
   renderTeams();
   setMode(cfg.defaultMode);
   applyTheme();
@@ -853,7 +870,7 @@ async function updateEstimate() {
   if (!n) { el.textContent = ''; return; }
   try {
     const maxCalls = Number($('maxCalls').value);
-    const r = await postJson('/api/estimate', { n, ...roundsBody(), persona: sg, chars: qEl.value.length + totalChars(), maxCalls });
+    const r = await postJson('/api/estimate', { n, ...roundsBody(), persona: sg, chars: qEl.value.length + totalChars() + agendaChars() + profileChars(), maxCalls });
     const k = (x) => (x < 1000 ? `${x}` : x < 1e6 ? `${Math.round(x / 100) / 10}천` : `${Math.round(x / 1e5) / 10}백만`);
     const calls = r.calls.min === r.calls.max ? `<b>${r.calls.max}회</b>` : `<b>${r.calls.min}~${r.calls.max}회</b>`;
     el.className = 'estimate' + (r.calls.capped || r.calls.max >= 100 ? ' warn' : '');
@@ -976,3 +993,65 @@ $('viewToggle').addEventListener('click', () => {
   if (!officeView) feed.scrollTop = 0; // 토론 내용을 펼치면 처음부터 읽을 수 있게
 });
 applyView();
+
+// --- 안건 양식: 판단에 필요한 정보를 칸에 적으면 질문으로 조립한다. 빈 칸은 "미확인". ---
+let cfgForms = [];
+const curForm = () => cfgForms.find((f) => f.id === $('agendaForm').value);
+function renderAgenda(open) {
+  const f = curForm();
+  const box = $('agendaFields');
+  box.innerHTML = f ? f.fields.map((x, i) => `<label class="agenda-field"><span>${esc(x.label)}</span><input type="text" data-af="${i}" placeholder="${esc(x.placeholder || '')}" autocomplete="off"></label>`).join('') : '';
+  $('agendaBox').classList.toggle('has-form', Boolean(f));
+  if (open && f) $('agendaBox').open = true;
+  if (!f) $('agendaBox').open = false;
+  box.querySelectorAll('input').forEach((i) => i.addEventListener('input', scheduleEstimate));
+  scheduleEstimate();
+}
+const agendaValues = () => [...$('agendaFields').querySelectorAll('input')].map((i) => i.value.trim());
+const agendaChars = () => (curForm() ? agendaValues().join('').length + 80 : 0);
+function clearAgendaValues() { $('agendaFields').querySelectorAll('input').forEach((i) => { i.value = ''; }); }
+function buildQuestion(ask) {
+  const f = curForm();
+  if (!f) return ask;
+  const vals = agendaValues();
+  if (!ask && !vals.some(Boolean)) return '';
+  const lines = f.fields.map((x, i) => `- ${x.label}: ${vals[i] || '미확인'}`);
+  return `[안건: ${f.name}]\n${lines.join('\n')}\n(미확인 항목은 없는 것이 아니라 아직 확인되지 않은 정보입니다. 추측으로 채우지 말고, 결론에서 확인이 필요한 사항으로 정리해 주세요.)\n\n[질문]\n${ask || f.ask}`;
+}
+$('agendaForm').addEventListener('change', () => renderAgenda(true));
+$('agendaForm').addEventListener('click', (e) => e.stopPropagation());
+function loadForms(list) {
+  cfgForms = list || [];
+  $('agendaForm').innerHTML = '<option value="">안건 양식: 없음</option>' + cfgForms.map((f) => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
+  $('agendaBox').hidden = !cfgForms.length;
+}
+
+// --- 회사 정보 ---
+let profileTemplate = '';
+const profileChars = () => ($('useProfile').checked ? Math.min(8000, $('profileText').value.length) : 0);
+function profileState() {
+  const n = $('profileText').value.trim().length;
+  $('profileState').textContent = n ? `(${n.toLocaleString()}자${$('useProfile').checked ? ', 사용 중' : ', 사용 안 함'})` : '(비어 있음)';
+}
+async function loadProfile() {
+  try { const r = await fetch('/api/profile'); const d = await r.json(); $('profileText').value = d.text || ''; } catch {}
+  try { $('useProfile').checked = localStorage.getItem('useProfile') !== '0'; } catch {}
+  profileState();
+}
+$('profileSave').addEventListener('click', async () => {
+  try {
+    const r = await postJson('/api/profile', { text: $('profileText').value });
+    $('profileText').value = r.text;
+    $('profileMsg').textContent = r.text ? '저장했습니다. 다음 회의부터 자료로 첨부됩니다.' : '비워서 저장했습니다. 회사 정보를 쓰지 않습니다.';
+  } catch (e) { $('profileMsg').textContent = '저장 실패: ' + e.message; }
+  profileState(); scheduleEstimate();
+});
+$('profileTemplate').addEventListener('click', () => {
+  if ($('profileText').value.trim() && !confirm('지금 적어 둔 내용을 예시로 바꿉니다. 계속할까요?')) return;
+  $('profileText').value = profileTemplate;
+  $('profileMsg').textContent = '예시를 넣었습니다. 괄호 부분을 고친 뒤 저장하세요.';
+  profileState();
+});
+$('useProfile').addEventListener('change', () => { try { localStorage.setItem('useProfile', $('useProfile').checked ? '1' : '0'); } catch {} profileState(); scheduleEstimate(); });
+$('profileText').addEventListener('input', profileState);
+loadProfile();
