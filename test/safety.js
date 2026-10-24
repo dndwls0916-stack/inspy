@@ -50,6 +50,9 @@ m1.push({ type: 'thinking', who: 'x' }); m1.push({ type: 'turn', text: '기록' 
 const f1 = m1.finish('완료');
 assert(f1.startsWith(dir) && f1.endsWith('.md') && !f1.includes('..'), '회의록 폴더 밖으로 나가지 않는다');
 assert.equal(fs.readFileSync(f1.replace(/\.md$/, '.jsonl'), 'utf8').trim().split('\n').filter((l) => JSON.parse(l).type === 'turn').length, 1, 'thinking 은 기록하지 않고 turn 만');
+// 안건 양식으로 보낸 질문은 양식 이름으로 파일 이름을 짓는다
+const mf = createMinutes({ dir, question: '[안건: 일일 배송 운영 점검]\n- 날짜: 10/24\n[질문]\n점검' });
+assert(path.basename(mf.finish('완료')).includes('일일 배송 운영 점검') && !path.basename(mf.finish('완료')).includes('날짜'), '회의록 파일 이름은 안건 양식 이름');
 const m2 = createMinutes({ dir, question: '../../evil/이름: 테스트?' });
 assert.equal(fs.readdirSync(dir).length >= 3, true, '같은 이름이라도 새 파일(덮어쓰기 없음)');
 const m3 = createMinutes({ dir, question: '강제 종료될 긴 질문\n둘째 줄', attachments: ['x.txt'], mode: 'api' });
