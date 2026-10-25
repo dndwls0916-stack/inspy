@@ -15,12 +15,13 @@ try {
 const { runCouncil } = require('./lib/council');
 const { listAllModels, cliModelChoices } = require('./lib/models');
 const { PERSONAS, SAGE } = require('./lib/personas');
-const { scanFolder, saveOutput } = require('./lib/folder');
+const { scanFolder, saveOutput, readFolderXlsx } = require('./lib/folder');
 const { ROLES, TEAMS, publicRoles } = require('./lib/roles');
 const { estimate } = require('./lib/estimate');
 const profile = require('./lib/profile');
 const crypto = require('crypto');
 const { redactRequest } = require('./lib/redact');
+const xlsxPick = require('./lib/xlsx_pick');
 const { FORMS } = require('./lib/forms_logistics');
 const { createMinutes, listMinutes, readMinutes } = require('./lib/minutes');
 const os = require('os');
@@ -89,6 +90,59 @@ function readBody(req, limit = 2_000_000) {
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
+}
+
+function readRaw(req, limit) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) { reject(new Error('파일이 너무 큽니다(20MB 이하)')); req.destroy(); } else chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+// 엑셀 시트·행 고르기: 한 번 읽은 통합 문서를 잠시 보관(최대 4개, 20분)하고, 고른 부분만 글로 뽑아 준다.
+const xlsxCache = new Map(); // token -> { wb, name, at }
+function xlsxRemember(wb, name) {
+  const now = Date.now();
+  for (const [k, v] of xlsxCache) if (now - v.at > 20 * 60 * 1000) xlsxCache.delete(k);
+  while (xlsxCache.size >= 4) xlsxCache.delete(xlsxCache.keys().next().value);
+  const token = crypto.randomBytes(8).toString('hex');
+  xlsxCache.set(token, { wb, name, at: now });
+  return token;
+}
+function xlsxOpen(buf, name) {
+  let wb;
+  try { wb = xlsxPick.parseWorkbook(buf); } catch (e) { throw new Error(`엑셀(.xlsx) 파일을 읽지 못했습니다: ${String(e.message || e).slice(0, 80)}`); }
+  return { token: xlsxRemember(wb, name), name, sheets: xlsxPick.describe(wb) };
+}
+async function handleXlsx(req, res, url) {
+  try {
+    if (url.pathname === '/api/xlsx/inspect') {
+      const buf = await readRaw(req, 20 * 1024 * 1024);
+      const name = String(url.searchParams.get('name') || '엑셀.xlsx').slice(0, 120);
+      return sendJson(res, 200, xlsxOpen(buf, name));
+    }
+    const b = JSON.parse(await readBody(req, 100_000));
+    if (url.pathname === '/api/xlsx/inspect-folder') {
+      const f = readFolderXlsx(b.path, b.rel);
+      return sendJson(res, 200, xlsxOpen(f.buf, f.name));
+    }
+    const hit = xlsxCache.get(String(b.token || ''));
+    if (!hit) return sendJson(res, 404, { error: '엑셀을 다시 열어 주세요(보관 시간이 지났습니다)' });
+    hit.at = Date.now();
+    const picks = (Array.isArray(b.picks) ? b.picks : []).slice(0, 6);
+    if (!picks.length) return sendJson(res, 400, { error: '가져올 시트를 고르세요' });
+    const maxChars = Math.min(80000, Math.max(500, Math.floor(Number(b.maxChars)) || 80000));
+    const r = xlsxPick.extractSelection(hit.wb, picks, { maxChars, rowNumbers: b.rowNumbers !== false, previewLines: b.preview ? 14 : 0 });
+    return sendJson(res, 200, r);
+  } catch (e) {
+    return sendJson(res, 400, { error: String(e.message || e) });
+  }
 }
 
 function config() {
@@ -348,6 +402,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/council/say') return await handleSay(req, res);
     if (req.method === 'POST' && url.pathname === '/api/council') return await handleCouncil(req, res);
     if (req.method === 'POST' && url.pathname === '/api/estimate') return await handleEstimate(req, res);
+    if (req.method === 'POST' && url.pathname.startsWith('/api/xlsx/')) return await handleXlsx(req, res, url);
     if (req.method === 'POST' && url.pathname === '/api/folder/scan') return await handleFolder(req, res, 'scan');
     if (req.method === 'POST' && url.pathname === '/api/folder/save') return await handleFolder(req, res, 'save');
 

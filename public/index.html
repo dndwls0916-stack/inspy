@@ -146,7 +146,28 @@
       </form>
     </main>
   </div>
-  <dialog id="pastDlg" class="past-dlg" aria-label="지난 회의">
+  <dialog id="xlsxDlg" class="xlsx-dlg" aria-label="엑셀 시트·행 고르기">
+  <form method="dialog" class="past-head"><strong id="xlsxTitle">엑셀 고르기</strong><button class="ghost" value="close">닫기</button></form>
+  <p class="hint">필요한 시트와 행만 골라 보냅니다. 개인정보가 있는 열(전화번호 등)은 체크를 풀면 아예 보내지 않습니다. 수식은 계산하지 않고 저장된 값만 읽습니다.</p>
+  <div class="xlsx-body">
+    <div id="xlsxSheets" class="xlsx-sheets" role="radiogroup" aria-label="시트"></div>
+    <div class="xlsx-form">
+      <div class="xlsx-row">
+        <label>시작 행 <input id="xFrom" type="number" min="1"></label>
+        <label>끝 행 <input id="xTo" type="number" min="1"></label>
+        <label>제목 줄 <small>행 번호</small><input id="xHeader" type="number" min="0" placeholder="없음"></label>
+      </div>
+      <label class="xlsx-wide">행 걸러내기 <small>이 글자가 들어 있는 행만</small><input id="xContains" type="text" autocomplete="off"></label>
+      <label class="check"><input type="checkbox" id="xRowNo" checked> <span>행 번호 붙이기 <small>결론에서 "12행"처럼 근거를 가리킬 수 있어요</small></span></label>
+      <div class="xlsx-colhead"><b>보낼 열</b><button type="button" id="xColsAll" class="ghost">모두</button><button type="button" id="xColsNone" class="ghost">모두 해제</button></div>
+      <div id="xCols" class="xlsx-colgrid"></div>
+      <div class="xlsx-actions"><button type="button" id="xPreview" class="ghost">미리보기</button><button type="button" id="xAdd">첨부하기</button></div>
+      <p id="xMsg" class="hint" role="status"></p>
+      <pre id="xOut" class="xlsx-out"></pre>
+    </div>
+  </div>
+</dialog>
+<dialog id="pastDlg" class="past-dlg" aria-label="지난 회의">
   <form method="dialog" class="past-head"><strong>지난 회의 찾기</strong><button class="ghost" value="close">닫기</button></form>
   <input id="pastQ" type="search" placeholder="제목, 질문, 결론, 역할에서 찾기 (예: 간선 지연)" autocomplete="off" aria-label="지난 회의 검색">
   <div id="pastList" class="past-list" role="list"></div>

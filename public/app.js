@@ -147,10 +147,11 @@ async function addFiles(fileList) {
       if (file.size > ATTACH.maxBytes) throw new Error(`파일이 너무 큽니다 (${Math.round(ATTACH.maxBytes / 1048576)}MB 이하)`);
       const name = file.name;
       let text;
+      if (/\.xlsx$/i.test(name)) { await openXlsxFile(file); continue; } // 시트·행·열을 고르는 창을 연다
       if (/\.pdf$/i.test(name)) text = await readPdf(file);
       else if (/\.docx$/i.test(name)) text = await readDocx(file);
       else if (TEXT_EXT.test(name) || file.type.startsWith('text/')) text = await readText(file);
-      else throw new Error('지원하지 않는 형식입니다 (텍스트, 코드, CSV, JSON, PDF, docx 가능. 이미지·hwp 는 안 됩니다. 엑셀·파워포인트는  폴더로 읽을 수 있습니다)');
+      else throw new Error('지원하지 않는 형식입니다 (텍스트, 코드, CSV, JSON, PDF, docx 가능. 이미지·hwp 는 안 됩니다. 파워포인트는 폴더로 읽을 수 있습니다. 엑셀은 .xlsx 로 저장해 첨부하세요)');
       text = text.replace(/\u0000/g, '').trim();
       if (!text) throw new Error('내용이 비어 있습니다');
       const room = ATTACH.maxChars - totalChars();
@@ -181,11 +182,12 @@ function renderFolder() {
     if (!f.ok) return `<label class="skip"><input type="checkbox" disabled> ${esc(f.rel)} — ${esc(f.note)}</label>`;
     const fits = f.text.length <= budget;
     if (fits) budget -= f.text.length;
-    return `<label><input type="checkbox" data-f="${i}" ${fits ? 'checked' : ''}> ${esc(f.rel)} <i>${fmt(f.text.length)}자${f.truncated ? ' · 일부만' : ''}</i></label>`;
+    return `<label><input type="checkbox" data-f="${i}" ${fits ? 'checked' : ''}> ${esc(f.rel)} <i>${fmt(f.text.length)}자${f.truncated ? ' · 일부만' : ''}</i>${/\.xlsx$/i.test(f.rel) ? ` <button type="button" class="xl-pick" data-xlrel="${esc(f.rel)}">시트·행 고르기</button>` : ''}</label>`;
   }).join('') || '<span class="skip">읽을 수 있는 파일이 없습니다</span>';
   $('folderActions').hidden = !folderFiles.some((f) => f.ok);
   updateFolderInfo();
   $('folderList').querySelectorAll('[data-f]').forEach((c) => c.addEventListener('change', updateFolderInfo));
+  $('folderList').querySelectorAll('[data-xlrel]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); openXlsxFolder(b.dataset.xlrel); }));
 }
 function pickedFolderFiles() {
   return [...$('folderList').querySelectorAll('[data-f]:checked')].map((c) => folderFiles[Number(c.dataset.f)]);
@@ -1184,3 +1186,87 @@ async function loadPast() {
 }
 $('pastBtn').addEventListener('click', () => { $('pastDlg').showModal(); $('pastQ').value = ''; loadPast(); $('pastQ').focus(); });
 $('pastQ').addEventListener('input', () => { clearTimeout(pastTimer); pastTimer = setTimeout(loadPast, 250); });
+
+// --- 엑셀: 시트·행·열을 골라 필요한 부분만 첨부 ---
+let xl = null; // { token, name, sheets, sel }
+const xv = (id) => $(id).value.trim();
+async function openXlsxFile(file) {
+  attachMsg('엑셀을 읽는 중…');
+  const res = await fetch('/api/xlsx/inspect?name=' + encodeURIComponent(file.name), { method: 'POST', body: file });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+  attachMsg('');
+  showXlsx(d);
+}
+async function openXlsxFolder(rel) {
+  try {
+    const d = await postJson('/api/xlsx/inspect-folder', { path: folderRoot || $('folderPath').value, rel });
+    showXlsx(d);
+  } catch (e) { attachMsg(e.message, 'err'); }
+}
+function showXlsx(d) {
+  xl = { ...d, sel: 0 };
+  $('xlsxTitle').textContent = d.name;
+  $('xlsxSheets').innerHTML = d.sheets.map((s, i) => `<button type="button" class="xl-sheet" data-xs="${i}" role="radio">${esc(s.name)}<small>${esc(s.rows)}행 × ${esc(s.cols)}열${s.hidden ? ' · 숨김' : ''}</small></button>`).join('');
+  $('xlsxSheets').querySelectorAll('[data-xs]').forEach((b) => b.addEventListener('click', () => pickSheet(Number(b.dataset.xs))));
+  pickSheet(d.sheets.findIndex((s) => !s.hidden && s.rows) >= 0 ? d.sheets.findIndex((s) => !s.hidden && s.rows) : 0);
+  $('xOut').textContent = ''; $('xMsg').textContent = '';
+  if (!$('xlsxDlg').open) $('xlsxDlg').showModal();
+}
+// 제목 줄 추정: 맛보기 몇 줄 중, 칸이 충분히 채워진 첫 줄
+function guessHeader(s) {
+  const counts = s.preview.map((r) => r.cells.filter(Boolean).length);
+  const max = Math.max(0, ...counts);
+  const i = counts.findIndex((c) => c >= Math.max(2, Math.ceil(max * 0.6)));
+  return i >= 0 ? s.preview[i].n : 0;
+}
+function pickSheet(i) {
+  const s = xl.sheets[i];
+  xl.sel = i;
+  $('xlsxSheets').querySelectorAll('[data-xs]').forEach((b) => b.setAttribute('aria-checked', String(Number(b.dataset.xs) === i)));
+  let h = guessHeader(s);
+  if (h && h >= s.lastRow) h = 0; // 제목 줄 밖에 행이 없으면 제목 줄 없이 전부 가져온다
+  $('xHeader').value = h || '';
+  $('xFrom').value = h ? h + 1 : s.firstRow;
+  $('xTo').value = s.lastRow;
+  $('xContains').value = '';
+  const labels = (s.preview.find((r) => r.n === h)?.cells) || [];
+  const n = Math.min(s.cols, 60);
+  $('xCols').innerHTML = Array.from({ length: n }, (_, c) => `<label class="check"><input type="checkbox" data-xc="${c}" checked> <span>${esc(labels[c] || '(열 ' + colLetter(c) + ')')}</span></label>`).join('') + (s.cols > 60 ? `<small>열이 많아 앞의 60개만 표시합니다</small>` : '');
+  $('xOut').textContent = ''; $('xMsg').textContent = s.cut ? '행이 매우 많아 앞부분(20,000행)까지만 읽었습니다.' : (s.noValue ? `값이 저장되지 않은 수식 칸이 ${s.noValue}개 있어 비어 있습니다(엑셀에서 한 번 저장하면 채워집니다).` : '');
+}
+const colLetter = (i) => { let s = ''; for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
+function xPicks() {
+  const s = xl.sheets[xl.sel];
+  const all = [...$('xCols').querySelectorAll('[data-xc]')];
+  const on = all.filter((c) => c.checked).map((c) => Number(c.dataset.xc));
+  if (!on.length) throw new Error('보낼 열을 하나 이상 고르세요');
+  const from = Number(xv('xFrom')) || s.firstRow, to = Number(xv('xTo')) || s.lastRow;
+  if (to < from) throw new Error('끝 행이 시작 행보다 작습니다');
+  return [{ sheet: xl.sel, from, to, header: Number(xv('xHeader')) || null, cols: on.length === all.length && s.cols <= 60 ? null : on, contains: xv('xContains') }];
+}
+async function xlsxRequest(preview) {
+  return postJson('/api/xlsx/extract', { token: xl.token, picks: xPicks(), rowNumbers: $('xRowNo').checked, preview, maxChars: Math.max(500, ATTACH.maxChars - totalChars()) });
+}
+$('xPreview').addEventListener('click', async () => {
+  try {
+    const r = await xlsxRequest(true);
+    $('xOut').textContent = r.text;
+    $('xMsg').textContent = `보내면 ${r.rows}행, 약 ${fmt(r.chars)}자입니다. 남은 첨부 용량은 ${fmt(Math.max(0, ATTACH.maxChars - totalChars()))}자입니다.${r.notes.length ? ' ' + r.notes.join(' / ') : ''}`;
+  } catch (e) { $('xMsg').textContent = e.message; }
+});
+$('xAdd').addEventListener('click', async () => {
+  try {
+    if (attachments.length >= ATTACH.maxFiles) throw new Error(`첨부는 최대 ${ATTACH.maxFiles}개까지입니다`);
+    if (ATTACH.maxChars - totalChars() <= 500) throw new Error('첨부 용량이 가득 찼습니다');
+    const p = xPicks()[0];
+    const r = await xlsxRequest(false);
+    if (!r.rows) throw new Error('고른 조건에 맞는 행이 없습니다');
+    attachments.push({ name: `${xl.name} · ${xl.sheets[xl.sel].name} ${p.from}~${r.cutAt ?? p.to}행`, text: r.text, truncated: r.cutAt != null });
+    renderAttachments();
+    scheduleEstimate();
+    $('xMsg').textContent = `첨부했습니다 (${r.rows}행, ${fmt(r.chars)}자). 다른 시트를 더 고르거나 닫아도 됩니다.${r.notes.length ? ' ' + r.notes.join(' / ') : ''}`;
+  } catch (e) { $('xMsg').textContent = e.message; }
+});
+$('xColsAll').addEventListener('click', () => $('xCols').querySelectorAll('[data-xc]').forEach((c) => { c.checked = true; }));
+$('xColsNone').addEventListener('click', () => $('xCols').querySelectorAll('[data-xc]').forEach((c) => { c.checked = false; }));
