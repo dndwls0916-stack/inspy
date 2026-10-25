@@ -19,6 +19,7 @@ const { scanFolder, saveOutput } = require('./lib/folder');
 const { ROLES, TEAMS, publicRoles } = require('./lib/roles');
 const { estimate } = require('./lib/estimate');
 const profile = require('./lib/profile');
+const crypto = require('crypto');
 const { redactRequest } = require('./lib/redact');
 const { FORMS } = require('./lib/forms_logistics');
 const { createMinutes, listMinutes, readMinutes } = require('./lib/minutes');
@@ -171,6 +172,29 @@ async function handleEstimate(req, res) {
 }
 const clampCalls = (v) => Math.min(MAX_CALLS_LIMIT, Math.max(10, Math.floor(Number(v)) || DEFAULT_MAX_CALLS));
 
+// 진행 중인 회의: 사람이 회의 도중에 끼어들거나 "결론 내 달라"고 할 수 있다.
+const liveMeetings = new Map(); // id -> { notes: [], cursor, wrap, redactor, emit }
+const MAX_NOTES = 10;
+
+async function handleSay(req, res) {
+  let b;
+  try { b = JSON.parse(await readBody(req, 20_000)); } catch { return sendJson(res, 400, { error: '잘못된 요청입니다' }); }
+  const m = liveMeetings.get(String(b.id || ''));
+  if (!m) return sendJson(res, 404, { error: '진행 중인 회의가 아닙니다' });
+  if (b.wrapUp === true) {
+    if (!m.wrap) { m.wrap = true; m.emit({ type: 'wrapup' }); }
+    return sendJson(res, 200, { ok: true });
+  }
+  const raw = String(b.text || '').trim();
+  if (!raw) return sendJson(res, 400, { error: '내용을 입력하세요' });
+  if (raw.length > 1500) return sendJson(res, 400, { error: '한 번에 1500자까지 말할 수 있습니다' });
+  if (m.notes.length >= MAX_NOTES) return sendJson(res, 400, { error: `끼어들기는 회의당 ${MAX_NOTES}번까지입니다` });
+  const text = m.redactor ? m.redactor.text(raw) : raw; // 회의가 시작될 때와 같은 가리기 설정을 쓴다
+  m.notes.push(text);
+  m.emit({ type: 'interject', text });
+  return sendJson(res, 200, { ok: true, count: m.notes.length });
+}
+
 // 화면에서 온 가리기 설정을 검사해 안전한 값으로 만든다.
 function redactOptions(ro) {
   const cats = {};
@@ -264,10 +288,10 @@ async function handleCouncil(req, res) {
   if (body.useProfile !== false) { const pa = profile.profileAttachment(); if (pa) attachments.unshift(pa); }
   // 개인정보 가리기: AI 로 보내는 질문·첨부·이전 회의에서 전화번호 등을 가명으로 바꾼다(기본 켜짐). 회의록에도 가린 글이 남는다.
   const ro = body.redact && typeof body.redact === 'object' ? body.redact : {};
-  let q2 = question, atts = attachments, history = history0, redaction = null;
+  let q2 = question, atts = attachments, history = history0, redaction = null, redactor = null;
   if (ro.enabled !== false) {
     const rr = redactRequest({ question, attachments, history: history0 }, redactOptions(ro));
-    q2 = rr.question; atts = rr.attachments; history = rr.history;
+    q2 = rr.question; atts = rr.attachments; history = rr.history; redactor = rr.redactor;
     if (rr.report.total) redaction = { type: 'redaction', total: rr.report.total, counts: rr.report.counts };
   }
   const minutes = body.saveMinutes !== false && process.env.NO_MINUTES !== '1' ? createMinutes({ dir: minutesDir(), question: q2, attachments: atts.map((a) => a.name), mode }) : null;
@@ -276,16 +300,26 @@ async function handleCouncil(req, res) {
     if (!res.writableEnded) res.write(`data: ${JSON.stringify(ev)}\n\n`);
   };
   if (redaction) emit(redaction);
+  const meetingId = crypto.randomBytes(8).toString('hex');
+  const live = { notes: [], cursor: 0, wrap: false, redactor, emit };
+  liveMeetings.set(meetingId, live);
+  emit({ type: 'meeting', id: meetingId });
+  const human = {
+    pull: () => { const out = live.notes.slice(live.cursor); live.cursor = live.notes.length; return out; },
+    hasNew: () => live.notes.length > live.cursor,
+    wrap: () => live.wrap,
+  };
 
   activeMeetings++;
   let status = '완료';
   try {
-    await runCouncil({ question: q2, participants, attachments: atts, rounds, consensus, unlimited, maxRounds, maxCalls, moderator, history, mode, persona: body.persona === true, emit, signal: ac.signal });
+    await runCouncil({ question: q2, participants, attachments: atts, rounds, consensus, unlimited, maxRounds, maxCalls, moderator, history, mode, persona: body.persona === true, human, emit, signal: ac.signal });
   } catch (err) {
     status = '오류로 종료';
     emit({ type: 'error', error: String(err.message || err) });
   } finally {
     activeMeetings--;
+    liveMeetings.delete(meetingId);
   }
   if (ac.signal.aborted) status = '중단됨';
   const saved = minutes?.finish(status);
@@ -311,6 +345,7 @@ const server = http.createServer(async (req, res) => {
       const it = readMinutes(minutesDir(), String(url.searchParams.get('id') || '').slice(0, 200));
       return it ? sendJson(res, 200, it) : sendJson(res, 404, { error: '회의록을 찾을 수 없습니다' });
     }
+    if (req.method === 'POST' && url.pathname === '/api/council/say') return await handleSay(req, res);
     if (req.method === 'POST' && url.pathname === '/api/council') return await handleCouncil(req, res);
     if (req.method === 'POST' && url.pathname === '/api/estimate') return await handleEstimate(req, res);
     if (req.method === 'POST' && url.pathname === '/api/folder/scan') return await handleFolder(req, res, 'scan');

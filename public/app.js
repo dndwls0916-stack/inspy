@@ -658,6 +658,9 @@ function handle(ev, ctx) {
     }
     case 'budget': add(`<div class="msg-head">호출 상한 <small>${esc(ev.used)}/${esc(ev.max)}회</small></div><div class="msg-body"><p>${esc(ev.message)}</p></div>`, 'budget-card'); break;
     case 'usage': add(`AI 호출 ${esc(ev.calls)}${ev.maxCalls ? ` / 상한 ${esc(ev.maxCalls)}` : ''}회 사용`, 'minutes-note'); break;
+    case 'meeting': meetingId = ev.id; break;
+    case 'interject': add(`<div class="msg-head">진행자(나)의 한마디</div><div class="msg-body">${md(ev.text)}</div>`, 'user interject'); break;
+    case 'wrapup': add('진행자가 결론 정리를 요청했습니다. 진행 중인 라운드가 끝나면 지금까지의 토론으로 결론을 정리합니다.', 'minutes-note'); break;
     case 'redaction': add(`개인정보 ${esc(ev.total)}건을 가려서 AI 에 보냈습니다 (${Object.entries(ev.counts).map(([k, v]) => `${esc(k)} ${esc(v)}`).join(', ')})`, 'minutes-note redaction-note'); break;
     case 'minutes': add(`회의록 저장됨: ${esc(ev.path)}`, 'minutes-note'); break;
     case 'done': ctx.done = true; break;
@@ -757,16 +760,38 @@ function roundsBody() {
 }
 $('rounds').addEventListener('change', () => { $('roundsHint').hidden = !$('rounds').value.startsWith('c'); });
 
+// 회의 중에는 입력칸이 "끼어들기"로 바뀐다: 쓴 말은 다음 라운드와 최종 결론에 반영되고, "여기서 결론"은 토론을 마무리해 달라는 요청이다.
+let meetingId = null, meetingRunning = false;
+const PLACEHOLDER = qEl.placeholder;
 function setBusy(b) {
-  sendBtn.hidden = b;
+  meetingRunning = b;
+  sendBtn.hidden = false;
+  sendBtn.textContent = b ? '끼어들기' : '회의 소집';
   stopBtn.hidden = !b;
-  qEl.disabled = b;
-  if (!b) qEl.focus();
+  $('wrap').hidden = !b;
+  $('wrap').disabled = false;
+  $('wrap').textContent = '여기서 결론';
+  qEl.disabled = false;
+  qEl.placeholder = b ? '회의 중에 한마디 하기 (Ctrl/⌘+Enter). 다음 라운드와 최종 결론에 반영됩니다' : PLACEHOLDER;
+  if (!b) { meetingId = null; qEl.focus(); }
 }
+async function say(body) {
+  if (!meetingId) throw new Error('회의가 막 시작되는 중입니다. 잠시 뒤에 다시 시도하세요');
+  return postJson('/api/council/say', { id: meetingId, ...body });
+}
+$('wrap').addEventListener('click', async () => {
+  $('wrap').disabled = true;
+  try { await say({ wrapUp: true }); $('wrap').textContent = '결론 요청함'; } catch (e) { $('wrap').disabled = false; add(`<div>${esc(e.message)}</div>`, 'err'); }
+});
 
-form.addEventListener('submit', (e) => {
+form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (controller && !stopBtn.hidden) return;
+  if (meetingRunning) {
+    const t = qEl.value.trim();
+    if (!t) return;
+    try { await say({ text: t }); qEl.value = ''; } catch (err) { add(`<div>${esc(err.message)}</div>`, 'err'); }
+    return;
+  }
   const q = buildQuestion(qEl.value.trim());
   if (!q) return;
   qEl.value = '';
@@ -981,6 +1006,8 @@ function officeEvent(ev) {
       officeStatusText(ev.reached ? '전원 동의' : '합의 보류');
       break;
     case 'final': po.talk(ev.who, '결론을 정리했어요', 3000); officeStatusText(ev.consensus && !ev.consensus.reached ? '결론을 정리했습니다 (합의는 못 했습니다)' : '결론이 나왔습니다'); break;
+    case 'interject': officeStatusText('진행자(나)가 끼어들었습니다. 다음 라운드와 결론에 반영됩니다'); { const c = $('officeCaption'); c.hidden = false; c.style.setProperty('--c', 'var(--accent)'); c.innerHTML = `<b>진행자(나)</b>${esc(String(ev.text).replace(/\s+/g, ' ').slice(0, 110))}`; } break;
+    case 'wrapup': officeStatusText('진행자가 결론 정리를 요청했습니다. 이번 라운드가 끝나면 마무리합니다'); break;
     case 'budget': officeStatusText('AI 호출 상한에 닿아 지금까지의 토론으로 결론을 정리합니다'); break;
   }
 }
