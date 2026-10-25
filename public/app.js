@@ -496,11 +496,27 @@ function add(html, cls = '') {
   const el = document.createElement('div');
   el.className = 'msg ' + cls;
   el.innerHTML = html;
+  if (/\bpending\b/.test(cls)) { // 응답을 기다리는 카드: 경과 시간을 보여 준다
+    el.dataset.start = String(Date.now());
+    const sm = el.querySelector('.msg-head small');
+    if (sm) el.dataset.label = sm.textContent;
+  }
   feed.querySelector('.empty')?.remove();
   feed.appendChild(el);
   feed.scrollTop = feed.scrollHeight;
   return el;
 }
+// 응답이 오래 걸리는 AI 를 알아볼 수 있게, 기다리는 카드의 경과 시간을 1초마다 갱신한다(60초가 넘으면 강조).
+setInterval(() => {
+  const now = Date.now();
+  feed.querySelectorAll('.msg.pending[data-start]').forEach((el) => {
+    const sm = el.querySelector('.msg-head small');
+    if (!sm) return;
+    const sec = Math.floor((now - Number(el.dataset.start)) / 1000);
+    sm.textContent = `${el.dataset.label || '생각 중'} · ${sec}초${sec >= 60 ? ' (오래 걸리는 중)' : ''}`;
+    el.classList.toggle('slow', sec >= 60);
+  });
+}, 1000);
 const head = (id, label, extra = '') => {
   const p = byId(id);
   const who = sg && p?.persona ? `${esc(p.persona.name)} <small>${esc(p.label)}</small>` : esc(label);

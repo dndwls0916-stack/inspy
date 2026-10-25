@@ -329,3 +329,6 @@ body.office-on #feed > .round { display: none; }
 #wrap { white-space: nowrap; }
 .msg.user.interject { white-space: normal; }
 .composer #send, .composer #wrap, .composer #stop { flex: none; width: auto; white-space: nowrap; }
+
+.msg.pending.slow { border-left-color: #b7791f; }
+.msg.pending.slow .msg-head small { color: #b7791f; font-weight: 600; }
