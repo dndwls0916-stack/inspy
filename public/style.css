@@ -322,3 +322,10 @@ body.office-on #feed > .round { display: none; }
 .past-top small, .past-sub { color: var(--muted); font-size: 12px; }
 .past-body { margin: 6px 0 8px; font-size: 13px; line-height: 1.5; }
 .past-item button { width: auto; padding: 4px 14px; }
+
+/* --- 회의 중 끼어들기 --- */
+.msg.user.interject { align-self: flex-end; background: color-mix(in srgb, var(--accent) 14%, var(--panel)); color: var(--text); border: 1px solid var(--accent); }
+.msg.user.interject .msg-head { font-size: 12px; color: var(--accent); font-weight: 600; margin-bottom: 2px; }
+#wrap { white-space: nowrap; }
+.msg.user.interject { white-space: normal; }
+.composer #send, .composer #wrap, .composer #stop { flex: none; width: auto; white-space: nowrap; }
