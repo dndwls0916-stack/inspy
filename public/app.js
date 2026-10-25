@@ -604,6 +604,10 @@ function handle(ev, ctx) {
         pending[`ratify:${ev.who}`] = add(head(ev.who, ctx.labels[ev.who], '<small>최종안 확인 중</small>'), 'pending ' + provOf(ev.who));
         break;
       }
+      if (ev.round === 'premortem') {
+        pending['premortem'] = add(head(ev.who, ctx.labels[ev.who], '<small>사전 부검 작성 중</small>'), 'pending ' + provOf(ev.who));
+        break;
+      }
       if (ev.who === 'sage') {
         seat('sage', 'thinking');
         pending['sage:sage'] = add(`<div class="msg-head"><span class="mini-seal" style="--c:${cfgSage.color}">${cfgSage.hanja}</span>${esc(cfgSage.name)} <small>책략 구상 중</small></div>`, 'pending sage-card');
@@ -674,6 +678,12 @@ function handle(ev, ctx) {
       pending['sage:sage']?.remove();
       break;
     }
+    case 'premortem': {
+      pending['premortem']?.remove();
+      add(`<div class="msg-head"><span class="verdict no">사전 부검</span>이 결정이 실패한다면 <small>${esc(ev.label)} · AI 의 가정이며 사실 확인이 끝난 내용이 아닙니다</small></div><div class="msg-body">${md(ev.text)}</div>`, 'premortem-card');
+      break;
+    }
+    case 'premortem_error': pending['premortem']?.remove(); add(`사전 부검을 하지 못했습니다: ${esc(ev.error)}`, 'minutes-note'); break;
     case 'budget': add(`<div class="msg-head">호출 상한 <small>${esc(ev.used)}/${esc(ev.max)}회</small></div><div class="msg-body"><p>${esc(ev.message)}</p></div>`, 'budget-card'); break;
     case 'usage': add(`AI 호출 ${esc(ev.calls)}${ev.maxCalls ? ` / 상한 ${esc(ev.maxCalls)}` : ''}회 사용`, 'minutes-note'); break;
     case 'meeting': meetingId = ev.id; break;
@@ -681,7 +691,7 @@ function handle(ev, ctx) {
     case 'wrapup': add('진행자가 결론 정리를 요청했습니다. 진행 중인 라운드가 끝나면 지금까지의 토론으로 결론을 정리합니다.', 'minutes-note'); break;
     case 'redaction': add(`개인정보 ${esc(ev.total)}건을 가려서 AI 에 보냈습니다 (${Object.entries(ev.counts).map(([k, v]) => `${esc(k)} ${esc(v)}`).join(', ')})`, 'minutes-note redaction-note'); break;
     case 'minutes': add(`회의록 저장됨: ${esc(ev.path)}`, 'minutes-note'); break;
-    case 'done': ctx.done = true; break;
+    case 'done': ctx.done = true; notifyEnd(ctx); break;
     case 'error': add(`<div>${esc(ev.error)}</div>`, 'err'); break;
   }
   feed.scrollTop = feed.scrollHeight;
@@ -709,6 +719,43 @@ function addSaveBar(text) {
   feed.lastElementChild?.appendChild(el);
 }
 
+// 회의 끝 알림: 다른 창에서 일하는 동안에도 알 수 있게 소리, 탭 제목 깜박임, (허락했다면) 브라우저 알림을 쓴다.
+const baseTitle = document.title;
+let blinkTimer = null;
+function stopBlink() { clearInterval(blinkTimer); blinkTimer = null; document.title = baseTitle; }
+document.addEventListener('visibilitychange', () => { if (!document.hidden) stopBlink(); });
+window.addEventListener('focus', stopBlink);
+function beep() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ac = new AC();
+    [660, 880].forEach((hz, i) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.frequency.value = hz; o.connect(g); g.connect(ac.destination);
+      const t = ac.currentTime + i * 0.18;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.15, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      o.start(t); o.stop(t + 0.18);
+    });
+    setTimeout(() => ac.close().catch(() => {}), 800);
+  } catch {}
+}
+function notifyEnd(ctx) {
+  if (!$('notifyEnd').checked || ctx.notified) return;
+  ctx.notified = true;
+  beep();
+  if (document.hidden) {
+    let on = false;
+    stopBlink();
+    blinkTimer = setInterval(() => { document.title = (on = !on) ? '✅ 회의가 끝났습니다' : baseTitle; }, 900);
+    try { if ('Notification' in window && Notification.permission === 'granted') new Notification('AI 회의실', { body: '회의가 끝났습니다. 결론을 확인하세요.' }); } catch {}
+  }
+}
+try { $('notifyEnd').checked = localStorage.getItem('notifyEnd') !== '0'; } catch {}
+$('notifyEnd').addEventListener('change', () => {
+  try { localStorage.setItem('notifyEnd', $('notifyEnd').checked ? '1' : '0'); } catch {}
+  if ($('notifyEnd').checked) { beep(); try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {} }
+});
+
 async function runMeeting(question) {
   const chosen = selected();
   if (!chosen.length) return add('<div>참가할 AI를 한 명 이상 선택하세요.</div>', 'err');
@@ -731,6 +778,7 @@ async function runMeeting(question) {
         participants: chosen.map((p) => ({ id: p.id, model: modelValue(p.id), role: roleOf(p.id), effort: effortOf(p.id) })),
         mode,
         persona: sg,
+        premortem: $('premortem').checked,
         ...roundsBody(),
         moderator: $('moderator').value,
         maxCalls: Number($('maxCalls').value),
@@ -812,6 +860,7 @@ form.addEventListener('submit', async (e) => {
   }
   const q = buildQuestion(qEl.value.trim());
   if (!q) return;
+  if (!precheck()) return;
   qEl.value = '';
   clearAgendaValues();
   $('agendaBox').open = false; // 보낸 뒤에는 접어서 화면을 넓게 쓴다
@@ -918,7 +967,7 @@ async function updateEstimate() {
   if (!n) { el.textContent = ''; return; }
   try {
     const maxCalls = Number($('maxCalls').value);
-    const r = await postJson('/api/estimate', { n, ...roundsBody(), persona: sg, chars: qEl.value.length + totalChars() + agendaChars() + profileChars() + pinned.reduce((n, p) => n + p.conclusion.length, 0), maxCalls });
+    const r = await postJson('/api/estimate', { n, ...roundsBody(), persona: sg, premortem: $('premortem').checked, chars: qEl.value.length + totalChars() + agendaChars() + profileChars() + pinned.reduce((n, p) => n + p.conclusion.length, 0), maxCalls });
     const k = (x) => (x < 1000 ? `${x}` : x < 1e6 ? `${Math.round(x / 100) / 10}천` : `${Math.round(x / 1e5) / 10}백만`);
     const calls = r.calls.min === r.calls.max ? `<b>${r.calls.max}회</b>` : `<b>${r.calls.min}~${r.calls.max}회</b>`;
     el.className = 'estimate' + (r.calls.capped || r.calls.max >= 100 ? ' warn' : '');
@@ -1068,6 +1117,19 @@ function buildQuestion(ask) {
   const lines = f.fields.map((x, i) => `- ${x.label}: ${vals[i] || '미확인'}`);
   return `[안건: ${f.name}]\n${lines.join('\n')}\n(미확인 항목은 없는 것이 아니라 아직 확인되지 않은 정보입니다. 추측으로 채우지 말고, 결론에서 확인이 필요한 사항으로 정리해 주세요.)\n\n[질문]\n${ask || f.ask}`;
 }
+// 사전 점검: AI 를 부르기 전에 안건 양식의 빈 칸을 알려 준다. 앞쪽 세 칸(핵심)이 비었거나 절반 넘게 비면 확인을 받는다.
+function precheck() {
+  const f = curForm();
+  if (!f) return true;
+  const vals = agendaValues();
+  const blanks = f.fields.filter((_, i) => !vals[i]).map((x) => x.label);
+  if (!blanks.length) return true;
+  const keyBlank = f.fields.slice(0, 3).filter((_, i) => !vals[i]).map((x) => x.label);
+  if (!keyBlank.length && blanks.length * 2 <= f.fields.length) return true;
+  const ok = confirm(`안건 양식에 비어 있는 칸이 ${blanks.length}개 있습니다.\n\n- ${blanks.join('\n- ')}\n\n비운 칸은 "미확인"으로 전달되어 AI 가 추측하지 않고 확인 필요 사항으로 정리합니다. AI 호출 비용이 드는 회의이니, 아는 값은 채우고 시작하는 편이 좋습니다.\n\n이대로 시작할까요? (취소하면 입력창으로 돌아갑니다)`);
+  if (!ok) { qEl.value = qEl.value || ''; $('agendaBox').open = true; $('agendaFields').querySelector('input:placeholder-shown, input')?.focus(); }
+  return ok;
+}
 $('agendaForm').addEventListener('change', () => renderAgenda(true));
 $('agendaForm').addEventListener('click', (e) => e.stopPropagation());
 function loadForms(list) {
@@ -1075,6 +1137,26 @@ function loadForms(list) {
   $('agendaForm').innerHTML = '<option value="">안건 양식: 없음</option>' + cfgForms.map((f) => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
   $('agendaBox').hidden = !cfgForms.length;
 }
+
+// --- 백업·옮기기 ---
+$('backupUp').addEventListener('click', () => $('backupFile').click());
+$('backupFile').addEventListener('change', async () => {
+  const f = $('backupFile').files[0];
+  $('backupFile').value = '';
+  const msg = $('backupMsg');
+  if (!f) return;
+  msg.textContent = '불러오는 중…';
+  try {
+    const r = await fetch('/api/backup/restore', { method: 'POST', headers: { 'content-type': 'application/zip' }, body: f });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    const prof = { restored: '회사 정보를 가져왔습니다', kept: '회사 정보는 이미 있어 덮어쓰지 않았습니다(백업 파일 안에 남아 있습니다)', same: '회사 정보는 같습니다', rejected: '회사 정보를 가져오지 못했습니다', none: '' }[d.profile] || '';
+    msg.textContent = `회의록 ${d.added}건을 가져왔습니다${d.existing ? ` (이미 있어 건너뜀 ${d.existing}건)` : ''}${d.rejected ? ` · 읽지 못한 파일 ${d.rejected}건` : ''}. ${prof}`;
+    if (d.profile === 'restored') { const p = await (await fetch('/api/profile')).json(); $('profileText').value = p.text || ''; profileState(); }
+  } catch (err) {
+    msg.textContent = `불러오지 못했습니다: ${err.message}`;
+  }
+});
 
 // --- 회사 정보 ---
 let profileTemplate = '';

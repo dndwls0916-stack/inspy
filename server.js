@@ -15,6 +15,7 @@ try {
 const { runCouncil } = require('./lib/council');
 const { listAllModels, cliModelChoices } = require('./lib/models');
 const { PERSONAS, SAGE } = require('./lib/personas');
+const backup = require('./lib/backup');
 const { scanFolder, saveOutput, readFolderXlsx } = require('./lib/folder');
 const { ROLES, TEAMS, publicRoles } = require('./lib/roles');
 const { estimate } = require('./lib/estimate');
@@ -220,6 +221,7 @@ async function handleEstimate(req, res) {
     unlimited: consensus && b.unlimited === true,
     maxRounds: Math.min(8, Math.max(2, Number(b.maxRounds) || 5)),
     persona: b.persona === true,
+    premortem: b.premortem === true,
     chars: Math.max(0, Number(b.chars) || 0),
     maxCalls,
   }));
@@ -367,7 +369,7 @@ async function handleCouncil(req, res) {
   activeMeetings++;
   let status = '완료';
   try {
-    await runCouncil({ question: q2, participants, attachments: atts, rounds, consensus, unlimited, maxRounds, maxCalls, moderator, history, mode, persona: body.persona === true, human, emit, signal: ac.signal });
+    await runCouncil({ question: q2, participants, attachments: atts, rounds, consensus, unlimited, maxRounds, maxCalls, moderator, history, mode, persona: body.persona === true, premortem: body.premortem === true, human, emit, signal: ac.signal });
   } catch (err) {
     status = '오류로 종료';
     emit({ type: 'error', error: String(err.message || err) });
@@ -391,6 +393,17 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/profile') return sendJson(res, 200, { text: profile.readProfile(), max: profile.MAX_SAVE });
     if (req.method === 'POST' && url.pathname === '/api/profile') {
       try { const { text } = JSON.parse((await readBody(req, 100_000)) || '{}'); return sendJson(res, 200, { text: profile.writeProfile(text) }); }
+      catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/backup') {
+      const { buffer, meta } = backup.build({ minutesDir: minutesDir(), profileText: profile.readProfile() });
+      const d = new Date();
+      const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+      res.writeHead(200, { 'content-type': 'application/zip', 'content-disposition': `attachment; filename="ai-council-backup-${stamp}.zip"`, 'x-backup-minutes': String(meta.minutes), 'x-backup-profile': meta.profile ? '1' : '0' });
+      return res.end(buffer);
+    }
+    if (req.method === 'POST' && url.pathname === '/api/backup/restore') {
+      try { return sendJson(res, 200, backup.restore(await readRaw(req, 100 * 1024 * 1024), { minutesDir: minutesDir(), readProfile: profile.readProfile, writeProfile: profile.writeProfile })); }
       catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
     }
     if (req.method === 'POST' && url.pathname === '/api/redact/preview') return await handleRedactPreview(req, res);

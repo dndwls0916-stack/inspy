@@ -51,6 +51,14 @@
         <p id="profileMsg" class="hint" role="status"></p>
       </details>
 
+      <details id="backupBox" class="side-box">
+        <summary>백업·옮기기</summary>
+        <p class="hint">저장된 <b>회의록</b>과 <b>회사 정보</b>를 zip 하나로 내려받고, 다른 PC의 이 프로그램에서 다시 불러올 수 있습니다. API 키(.env)와 첨부 원본은 들어가지 않습니다. 불러올 때 이미 있는 파일은 덮어쓰지 않습니다.</p>
+        <div class="half-row"><a id="backupDl" class="ghost btn-link" href="/api/backup" download>백업 내려받기</a><button type="button" id="backupUp" class="ghost">백업 불러오기</button></div>
+        <input type="file" id="backupFile" accept=".zip" hidden>
+        <p id="backupMsg" class="hint" role="status"></p>
+      </details>
+
       <details id="privacyBox" class="side-box">
         <summary>개인정보 보호 <small id="privacyState"></small></summary>
         <p class="hint">AI 로 보내기 전에 전화번호, 주민번호, 이메일, 계좌, 차량번호를 <b>[전화1]</b> 같은 가명으로 바꿉니다. 같은 번호는 같은 가명이라 AI 가 구분은 할 수 있습니다. 회의록에도 가린 글이 저장됩니다.</p>
@@ -96,6 +104,8 @@
       </label>
       <p class="hint">상한에 닿으면 그 시점까지의 토론으로 결론을 정리하고 멈춥니다. 시작 버튼 위에 예상 호출 수가 표시됩니다.</p>
       <label class="check"><input type="checkbox" id="saveMinutes" checked> <span>회의록 자동 저장 <small>실행파일 옆 <b>회의록</b> 폴더에 .md / .jsonl</small></span></label>
+      <label class="check"><input type="checkbox" id="premortem"> <span>사전 부검 <small>결론 뒤에 "이 결정이 실패한다면" 이유 3가지를 AI 호출 1회로 덧붙임</small></span></label>
+      <label class="check"><input type="checkbox" id="notifyEnd" checked> <span>회의 끝 알림 <small>소리 · 탭 제목 깜박임 · 브라우저 알림</small></span></label>
       <button id="reset" class="ghost" type="button">새 회의 시작</button>
     </aside>
 
