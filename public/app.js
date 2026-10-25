@@ -1315,6 +1315,8 @@ function pickSheet(i) {
   const labels = (s.preview.find((r) => r.n === h)?.cells) || [];
   const n = Math.min(s.cols, 60);
   $('xCols').innerHTML = Array.from({ length: n }, (_, c) => `<label class="check"><input type="checkbox" data-xc="${c}" checked> <span>${esc(labels[c] || '(열 ' + colLetter(c) + ')')}</span></label>`).join('') + (s.cols > 60 ? `<small>열이 많아 앞의 60개만 표시합니다</small>` : '');
+  $('xGroup').innerHTML = '<option value="">묶지 않음</option>' + Array.from({ length: n }, (_, c) => `<option value="${c}">${esc(labels[c] || '(열 ' + colLetter(c) + ')')}</option>`).join('');
+  $('xStats').checked = false; $('xGroupRow').hidden = true;
   $('xOut').textContent = ''; $('xMsg').textContent = s.cut ? '행이 매우 많아 앞부분(20,000행)까지만 읽었습니다.' : (s.noValue ? `값이 저장되지 않은 수식 칸이 ${s.noValue}개 있어 비어 있습니다(엑셀에서 한 번 저장하면 채워집니다).` : '');
 }
 const colLetter = (i) => { let s = ''; for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
@@ -1325,16 +1327,17 @@ function xPicks() {
   if (!on.length) throw new Error('보낼 열을 하나 이상 고르세요');
   const from = Number(xv('xFrom')) || s.firstRow, to = Number(xv('xTo')) || s.lastRow;
   if (to < from) throw new Error('끝 행이 시작 행보다 작습니다');
-  return [{ sheet: xl.sel, from, to, header: Number(xv('xHeader')) || null, cols: on.length === all.length && s.cols <= 60 ? null : on, contains: xv('xContains') }];
+  return [{ sheet: xl.sel, from, to, header: Number(xv('xHeader')) || null, cols: on.length === all.length && s.cols <= 60 ? null : on, contains: xv('xContains'), groupBy: $('xStats').checked ? $('xGroup').value : '' }];
 }
 async function xlsxRequest(preview) {
-  return postJson('/api/xlsx/extract', { token: xl.token, picks: xPicks(), rowNumbers: $('xRowNo').checked, preview, maxChars: Math.max(500, ATTACH.maxChars - totalChars()) });
+  return postJson('/api/xlsx/extract', { token: xl.token, picks: xPicks(), rowNumbers: $('xRowNo').checked, stats: $('xStats').checked, preview, maxChars: Math.max(500, ATTACH.maxChars - totalChars()) });
 }
+$('xStats').addEventListener('change', () => { $('xGroupRow').hidden = !$('xStats').checked; });
 $('xPreview').addEventListener('click', async () => {
   try {
     const r = await xlsxRequest(true);
     $('xOut').textContent = r.text;
-    $('xMsg').textContent = `보내면 ${r.rows}행, 약 ${fmt(r.chars)}자입니다. 남은 첨부 용량은 ${fmt(Math.max(0, ATTACH.maxChars - totalChars()))}자입니다.${r.notes.length ? ' ' + r.notes.join(' / ') : ''}`;
+    $('xMsg').textContent = `보내면 ${r.rows}행, 약 ${fmt(r.chars)}자입니다.${r.statsCols ? ` 숫자 열 ${r.statsCols}개를 코드로 계산해 붙입니다(미리보기는 앞부분만 보입니다).` : ''} 남은 첨부 용량은 ${fmt(Math.max(0, ATTACH.maxChars - totalChars()))}자입니다.${r.notes.length ? ' ' + r.notes.join(' / ') : ''}`;
   } catch (e) { $('xMsg').textContent = e.message; }
 });
 $('xAdd').addEventListener('click', async () => {

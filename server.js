@@ -139,7 +139,7 @@ async function handleXlsx(req, res, url) {
     const picks = (Array.isArray(b.picks) ? b.picks : []).slice(0, 6);
     if (!picks.length) return sendJson(res, 400, { error: '가져올 시트를 고르세요' });
     const maxChars = Math.min(80000, Math.max(500, Math.floor(Number(b.maxChars)) || 80000));
-    const r = xlsxPick.extractSelection(hit.wb, picks, { maxChars, rowNumbers: b.rowNumbers !== false, previewLines: b.preview ? 14 : 0 });
+    const r = xlsxPick.extractSelection(hit.wb, picks, { maxChars, rowNumbers: b.rowNumbers !== false, previewLines: b.preview ? 14 : 0, stats: b.stats === true });
     return sendJson(res, 200, r);
   } catch (e) {
     return sendJson(res, 400, { error: String(e.message || e) });

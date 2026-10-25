@@ -71,6 +71,19 @@ assert.equal(r.rows, 2);
 assert(r.text.includes('(조건: "홍길동" 포함)'));
 r = extractSelection(wb, [{ sheet: 0, from: 1, to: 20, contains: '없는글자' }]);
 assert(r.text.includes('맞는 행이 없습니다'));
+// 코드 계산: 합계·평균, 묶음별 합계, 번호·전화 열은 제외, 꺼 두면 없음
+const { toNumber } = require('../lib/xlsx_pick');
+assert.equal(toNumber('1,234'), 1234); assert.equal(toNumber('(300)'), -300); assert.equal(toNumber('12.5%'), 12.5);
+assert.equal(toNumber('010-1234-5678'), null); assert.equal(toNumber('00123'), null); assert.equal(toNumber('1234567890123'), null); assert.equal(toNumber('abc'), null); assert.equal(toNumber(''), null);
+r = extractSelection(wb, [{ sheet: 0, from: 4, to: 6, header: 3, groupBy: 1 }], { stats: true });
+assert(r.text.includes('## 코드로 계산한 값') && r.statsCols === 1);
+assert(/\| 물량 \| 3 \| 195\.3 \| 65\.1 \| 0\.3 \| 120 \| 0 \|/.test(r.text), r.text);
+assert(/\| A노선 \| 2 \| 195 \|/.test(r.text) && /\| B노선 \| 1 \| 0\.3 \|/.test(r.text));
+assert(!r.text.includes('| 전화 |'), '전화 열은 계산하지 않는다');
+r = extractSelection(wb, [{ sheet: 0, from: 4, to: 6, header: 3 }]);
+assert(!r.text.includes('코드로 계산한'));
+r = extractSelection(wb, [{ sheet: 1, from: 1, to: 5 }], { stats: true });
+assert(r.notes.some((n) => n.includes('숫자 열이 없습니다')));
 // 시트 여러 개
 r = extractSelection(wb, [{ sheet: 0, from: 3, to: 3 }, { sheet: 1, from: 1, to: 5 }]);
 assert(r.text.includes('## 시트: 배차실적') && r.text.includes('## 시트: 요약') && r.text.includes('항목\t요약표'));

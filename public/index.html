@@ -169,6 +169,8 @@
       </div>
       <label class="xlsx-wide">행 걸러내기 <small>이 글자가 들어 있는 행만</small><input id="xContains" type="text" autocomplete="off"></label>
       <label class="check"><input type="checkbox" id="xRowNo" checked> <span>행 번호 붙이기 <small>결론에서 "12행"처럼 근거를 가리킬 수 있어요</small></span></label>
+      <label class="check"><input type="checkbox" id="xStats"> <span>숫자 열 합계·평균을 코드로 계산해 함께 첨부 <small>AI 는 큰 표의 계산을 틀리기 쉬워요. 고른 행 전체를 기준으로 계산합니다</small></span></label>
+      <label class="xlsx-wide" id="xGroupRow" hidden>묶어서 합계 낼 열 <small>예: 캠프, 거래처</small><select id="xGroup"></select></label>
       <div class="xlsx-colhead"><b>보낼 열</b><button type="button" id="xColsAll" class="ghost">모두</button><button type="button" id="xColsNone" class="ghost">모두 해제</button></div>
       <div id="xCols" class="xlsx-colgrid"></div>
       <div class="xlsx-actions"><button type="button" id="xPreview" class="ghost">미리보기</button><button type="button" id="xAdd">첨부하기</button></div>
