@@ -949,9 +949,12 @@ fetch('/api/config').then((r) => r.json()).then((cfg) => {
   setMode(cfg.defaultMode);
   applyTheme();
   syncSg();
-  if (!providers.some((p) => p.apiConfigured || p.cliAvailable)) {
-    add('<div>사용 가능한 AI가 없습니다. <code>.env</code> 에 API 키를 넣거나 claude / codex / gemini CLI를 설치·로그인하세요. (README 참고)</div>', 'err');
-  }
+  loadSetup().then(() => {
+    if (cfg.setupNeeded) {
+      $('setupBox').open = true;
+      add('<div>사용 가능한 AI가 없습니다. 왼쪽 <b>연결 설정</b>에 API 키를 붙여 넣거나, claude / codex / gemini CLI를 설치·로그인하세요.</div>', 'err');
+    }
+  });
 });
 
 
@@ -1136,6 +1139,64 @@ function loadForms(list) {
   cfgForms = list || [];
   $('agendaForm').innerHTML = '<option value="">안건 양식: 없음</option>' + cfgForms.map((f) => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
   $('agendaBox').hidden = !cfgForms.length;
+}
+
+// --- 연결 설정: 키 저장, 연결 확인, 저장 폴더 쓰기 점검 ---
+let setupInfo = null;
+async function loadSetup() {
+  try { setupInfo = await (await fetch('/api/setup')).json(); } catch { return; }
+  renderSetup();
+}
+function renderSetup() {
+  const d = setupInfo;
+  if (!d) return;
+  const usable = d.providers.filter((p) => (p.apiConfigured && !d.mock) || p.cliAvailable).length;
+  $('setupState').textContent = d.mock ? '(데모)' : usable ? `(${usable}개 사용 가능)` : '(필요)';
+  const row = (p) => `<div class="setup-row" data-sp="${esc(p.id)}">
+    <div class="setup-head"><b>${esc(p.label)}</b> <small>${esc(p.vendor || '')}</small></div>
+    <div class="setup-badges">${p.canSetKey || p.keyEnv ? `<span class="badge ${p.apiConfigured ? 'ok' : 'no'}">API 키 ${p.apiConfigured ? '설정됨' : '없음'}</span>` : ''}${p.cliSupported ? `<span class="badge ${p.cliAvailable ? 'ok' : 'no'}">CLI ${p.cliAvailable ? '사용 가능' : '없음'}</span>` : ''}</div>
+    ${p.canSetKey ? `<div class="half-row"><input type="password" class="setup-key" placeholder="${esc(p.keyEnv)} 붙여 넣기" autocomplete="off" spellcheck="false" aria-label="${esc(p.label)} API 키"><button type="button" class="ghost" data-act="save">저장</button></div>` : ''}
+    <div class="half-row">${p.apiConfigured && p.canSetKey ? '<button type="button" class="ghost" data-act="test-api">API 연결 확인</button>' : ''}${p.cliAvailable && p.cliSupported ? '<button type="button" class="ghost" data-act="test-cli">CLI 연결 확인</button>' : ''}${p.apiConfigured && p.canSetKey ? '<button type="button" class="ghost" data-act="remove">키 지우기</button>' : ''}</div>
+    <div class="setup-result hint" role="status"></div></div>`;
+  const main = d.providers.filter((p) => !p.extra), extra = d.providers.filter((p) => p.extra && p.canSetKey);
+  $('setupList').innerHTML = main.map(row).join('') + (extra.length ? `<details class="setup-extra"><summary>다른 AI (${extra.length}개)</summary>${extra.map(row).join('')}</details>` : '');
+  const C = d.checks, mk = (ok, name, path, why) => `<div class="setup-check ${ok ? 'ok' : 'no'}"><span>${ok ? '✓' : '✗'}</span> ${esc(name)}: ${ok ? '쓸 수 있습니다' : esc(why)} <small>${esc(path)}</small></div>`;
+  $('setupChecks').innerHTML = mk(C.minutes.ok, '회의록 저장 폴더', C.minutes.path, '쓸 수 없습니다. 폴더 권한을 확인하거나 다른 위치에서 실행하세요') + mk(C.profile.ok, '회사 정보 파일', C.profile.path, '쓸 수 없습니다. 회사 정보 저장이 안 됩니다') + mk(C.env.ok, '설정 파일(.env)', C.env.path, '쓸 수 없습니다. 키를 화면에서 저장할 수 없으니 파일을 직접 편집하세요');
+}
+$('setupList').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const rowEl = btn.closest('[data-sp]'), id = rowEl.dataset.sp, out = rowEl.querySelector('.setup-result');
+  const say = (t, cls = '') => { out.textContent = t; out.className = `setup-result hint ${cls}`; };
+  try {
+    if (btn.dataset.act === 'save') {
+      const inp = rowEl.querySelector('.setup-key');
+      const key = inp.value.trim();
+      inp.value = '';
+      await postJson('/api/setup/key', { provider: id, key });
+      say('저장했습니다. "API 연결 확인"으로 확인해 보세요.', 'ok');
+      await refreshProviders();
+    } else if (btn.dataset.act === 'remove') {
+      if (!confirm('저장된 키를 지울까요? (.env 에서 값이 비워집니다)')) return;
+      await postJson('/api/setup/key', { provider: id, remove: true });
+      say('지웠습니다.');
+      await refreshProviders();
+    } else {
+      btn.disabled = true; say('확인 중… (최대 1분)');
+      const r = await postJson('/api/setup/test', { provider: id, mode: btn.dataset.act === 'test-cli' ? 'cli' : 'api' });
+      say(r.ok ? `연결됨 (${(r.ms / 1000).toFixed(1)}초)` : `실패: ${r.error}`, r.ok ? 'ok' : 'err');
+      btn.disabled = false;
+    }
+  } catch (err) { say(err.message, 'err'); btn.disabled = false; }
+});
+// 키를 바꾼 뒤: 서버의 현재 상태로 AI 목록과 설정 화면을 다시 그린다
+async function refreshProviders() {
+  await loadSetup();
+  try {
+    const cfg = await (await fetch('/api/config')).json();
+    providers = cfg.providers;
+    renderParticipants();
+  } catch {}
 }
 
 // --- 백업·옮기기 ---
