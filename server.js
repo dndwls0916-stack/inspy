@@ -18,6 +18,7 @@ const { PERSONAS, SAGE } = require('./lib/personas');
 const backup = require('./lib/backup');
 const setup = require('./lib/setup');
 const actions = require('./lib/actions');
+const decisions = require('./lib/decisions');
 const { scanFolder, saveOutput, readFolderXlsx } = require('./lib/folder');
 const { ROLES, TEAMS, publicRoles } = require('./lib/roles');
 const { estimate } = require('./lib/estimate');
@@ -289,6 +290,7 @@ async function handleRedactPreview(req, res) {
   const atts = (Array.isArray(b.attachments) ? b.attachments : []).slice(0, MAX_ATTACH_FILES).map((a) => ({ name: String(a?.name || '').slice(0, 200), text: String(a?.text || '') }));
   if (b.useProfile !== false) { const pa = profile.profileAttachment(); if (pa) atts.unshift(pa); }
   if (b.carryActions === true) { const ca = actions.carryAttachment(minutesDir()); if (ca) atts.unshift({ name: ca.name, text: ca.text }); }
+  if (Array.isArray(b.precedents) && b.precedents.length) { const pa = decisions.precedentAttachment(minutesDir(), b.precedents); if (pa) atts.unshift({ name: pa.name, text: pa.text }); }
   const pinned = (Array.isArray(b.pinned) ? b.pinned : []).slice(0, 3).map((h) => ({ question: String(h.question || '').slice(0, 500), conclusion: String(h.conclusion || '').slice(0, 3000) }));
   const rr = redactRequest({ question: String(b.question || '').slice(0, 8000), attachments: atts, history: pinned }, redactOptions(b.redact || {}));
   return sendJson(res, 200, { report: rr.report });
@@ -369,6 +371,9 @@ async function handleCouncil(req, res) {
   // 이전 회의에서 사람이 확정한 미완료 할 일을 이번 회의 자료로 올린다(켠 경우만)
   let carried = 0;
   if (body.carryActions === true) { const ca = actions.carryAttachment(minutesDir()); if (ca) { attachments.unshift({ name: ca.name, text: ca.text }); carried = ca.count; } }
+  // 비슷한 과거 결정(사용자가 고른 것): id 로만 받아 저장된 내용을 자료로 올린다
+  let precedents = 0;
+  if (Array.isArray(body.precedents) && body.precedents.length) { const pa = decisions.precedentAttachment(minutesDir(), body.precedents); if (pa) { attachments.unshift({ name: pa.name, text: pa.text }); precedents = pa.count; } }
   // 개인정보 가리기: AI 로 보내는 질문·첨부·이전 회의에서 전화번호 등을 가명으로 바꾼다(기본 켜짐). 회의록에도 가린 글이 남는다.
   const ro = body.redact && typeof body.redact === 'object' ? body.redact : {};
   let q2 = question, atts = attachments, history = history0, redaction = null, redactor = null;
@@ -396,7 +401,7 @@ async function handleCouncil(req, res) {
   activeMeetings++;
   let status = '완료';
   try {
-    await runCouncil({ question: q2, participants, attachments: atts, rounds, consensus, unlimited, maxRounds, maxCalls, moderator, history, mode, persona: body.persona === true, premortem: body.premortem === true, carried, human, emit, signal: ac.signal });
+    await runCouncil({ question: q2, participants, attachments: atts, rounds, consensus, unlimited, maxRounds, maxCalls, moderator, history, mode, persona: body.persona === true, premortem: body.premortem === true, carried, precedents, human, emit, signal: ac.signal });
   } catch (err) {
     status = '오류로 종료';
     emit({ type: 'error', error: String(err.message || err) });
@@ -442,6 +447,18 @@ const server = http.createServer(async (req, res) => {
       } catch (e) { return sendJson(res, 400, { error: setup.scrub(e.message || e) }); }
     }
     if (req.method === 'POST' && url.pathname === '/api/setup/test') return await handleSetupTest(req, res);
+    if (req.method === 'GET' && url.pathname === '/api/decisions') return sendJson(res, 200, { items: decisions.load(minutesDir()), due: decisions.due(minutesDir()).map((x) => x.id) });
+    if (req.method === 'POST' && url.pathname.startsWith('/api/decisions/')) {
+      try {
+        const b = JSON.parse((await readBody(req, 60_000)) || '{}');
+        const act = url.pathname.slice('/api/decisions/'.length);
+        if (act === 'add') return sendJson(res, 200, { item: decisions.add(minutesDir(), b) });
+        if (act === 'update') return sendJson(res, 200, { item: decisions.update(minutesDir(), String(b.id || ''), b.patch) });
+        if (act === 'delete') { decisions.remove(minutesDir(), String(b.id || '')); return sendJson(res, 200, { ok: true }); }
+        if (act === 'similar') return sendJson(res, 200, { items: decisions.similar(minutesDir(), String(b.question || '').slice(0, 4000)).map(({ id, title, summary, outcome, result, created, score }) => ({ id, title, summary, outcome, result, created, score })) });
+        return sendJson(res, 404, { error: '없는 요청입니다' });
+      } catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
+    }
     if (req.method === 'GET' && url.pathname === '/api/actions') return sendJson(res, 200, { items: actions.load(minutesDir()) });
     if (req.method === 'POST' && url.pathname.startsWith('/api/actions/')) {
       try {
