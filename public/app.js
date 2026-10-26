@@ -642,6 +642,7 @@ function handle(ev, ctx) {
       add(head('', sg ? '최종 결단(決斷)' : '최종 결론', `${badge}${absent}<small>${sg ? '주재' : '사회자'}: ${esc(nameOf(ev.who))}${ev.consensus && !ev.consensus.reached && ev.consensus.reason ? ` · ${esc(ev.consensus.reason)}` : ''}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`, 'final');
       ctx.conclusion = ev.text;
       addSaveBar(ev.text);
+      if (!ev.local) { addDecisionCard(ev.text, ctx); addDraftBar(ev, ctx); }
       break;
     }
     case 'consensus': {
@@ -723,17 +724,70 @@ function handle(ev, ctx) {
 }
 
 // 결론을 폴더의 '결과물' 폴더에 파일로 저장 (새 파일로만, 덮어쓰지 않음)
-function addSaveBar(text) {
+// 대상별 문서 초안: 결론을 상사 보고 / 임원 요약 / 거래처 안내문 / 현장 공지로 다시 쓴다(AI 호출 1회)
+const DRAFTS = [['boss', '상사 보고 1장'], ['exec', '임원 5줄 요약'], ['partner', '거래처 안내문'], ['field', '현장 공지']];
+function addDraftBar(ev, ctx) {
+  const host = feed.lastElementChild;
+  const el = document.createElement('div');
+  el.className = 'dec-nested draft-bar';
+  el.innerHTML = `<div><b>문서 초안</b> · 결론을 쓸 곳에 맞게 다시 써 줍니다 <small>AI 호출 1회 · 결론에 없는 사실은 [확인 필요]로 남깁니다</small></div><div class="dec-row">${DRAFTS.map(([k, l]) => `<button type="button" class="ghost draft-go" data-dk="${k}">${l}</button>`).join('')}</div><input type="text" class="draft-note" placeholder="추가 요청(선택): 예) 임원이 읽는 톤으로, 일정 강조" maxlength="300" aria-label="추가 요청"><div class="draft-out"></div>`;
+  const out = el.querySelector('.draft-out');
+  el.addEventListener('click', async (e) => {
+    const b = e.target.closest('.draft-go');
+    if (!b) return;
+    el.querySelectorAll('.draft-go').forEach((x) => { x.disabled = true; });
+    out.innerHTML = '<p class="hint">초안을 쓰는 중… (최대 1~2분)</p>';
+    try {
+      const r = await postJson('/api/draft', { kind: b.dataset.dk, conclusion: ev.text, provider: provOf(ev.who), model: ev.requested || '', mode, note: el.querySelector('.draft-note').value, redact: redactBody() });
+      const warn = r.check.missing.length ? `<p class="draft-warn">⚠ 초안에 결론에 없는 숫자가 있습니다: <b>${r.check.missing.map(esc).join(', ')}</b>. AI가 만들었을 수 있으니 확인하거나 지우세요.</p>` : r.check.numbersTotal ? '<p class="hint">초안의 숫자는 모두 결론에서 찾았습니다(해석이 맞는지는 확인하지 못합니다).</p>' : '';
+      out.innerHTML = `<div class="hint"><b>${esc(r.label)}</b> 초안 — 보내기 전에 사람이 읽고 고치세요${/\[(전화|이름|이메일|계좌|차량|주민번호)\d+\]/.test(r.text) ? ' (가려진 표시 [전화1] 등이 그대로 있으면 실제 값으로 바꾸세요)' : ''}</div>${warn}<textarea class="draft-text" rows="10" spellcheck="false" aria-label="${esc(r.label)} 초안"></textarea><div class="dec-row"><button type="button" class="ghost draft-copy">복사</button><span class="hint draft-msg" role="status"></span></div>`;
+      const ta = out.querySelector('.draft-text');
+      ta.value = r.text;
+      out.querySelector('.draft-copy').addEventListener('click', async () => {
+        const m = out.querySelector('.draft-msg');
+        try { await navigator.clipboard.writeText(ta.value); m.textContent = '복사했습니다'; } catch { ta.select(); m.textContent = '선택했습니다. Ctrl+C 로 복사하세요'; }
+      });
+      const save = document.createElement('div');
+      out.appendChild(save);
+      addSaveBar(() => ta.value, save, `${r.label}_${(ctx.title || '').slice(0, 20)}`);
+    } catch (err) { out.innerHTML = `<p class="hint err">${esc(err.message)}</p>`; }
+    el.querySelectorAll('.draft-go').forEach((x) => { x.disabled = false; });
+  });
+  host?.appendChild(el);
+}
+
+// 결론을 "결정"으로 기록: 제목과 재검토 시점은 사람이 정한다
+function addDecisionCard(text, ctx) {
+  const el = document.createElement('div');
+  el.className = 'dec-nested';
+  const t = (ctx.title || '').replace(/["<>]/g, '');
+  el.innerHTML = `<div><b>결정 기록</b> · 이 결론을 결정으로 기록할까요? <small>재검토할 때 결과를 적으면 다음에 참고할 수 있습니다</small></div><div class="dec-row"><input type="text" class="dec-title" value="${esc(t)}" placeholder="결정 제목" aria-label="결정 제목"><select class="dec-when" aria-label="재검토 시점"><option value="">재검토 안 함</option><option value="14">2주 뒤 재검토</option><option value="30" selected>1개월 뒤 재검토</option><option value="90">3개월 뒤 재검토</option></select><button type="button" class="dec-go">결정으로 기록</button></div><div class="hint dec-msg" role="status"></div>`;
+  el.querySelector('.dec-go').addEventListener('click', async (e) => {
+    const msg = el.querySelector('.dec-msg');
+    const days = Number(el.querySelector('.dec-when').value);
+    let reviewDate = '';
+    if (days) { const d = new Date(Date.now() + days * 86400000); reviewDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+    try {
+      await postJson('/api/decisions/add', { title: el.querySelector('.dec-title').value, question: ctx.question || '', conclusion: text, meeting: ctx.title, reviewDate });
+      e.target.disabled = true;
+      msg.textContent = `기록했습니다${reviewDate ? ` (재검토 ${reviewDate})` : ''}. 왼쪽 "추적" 탭에서 결과를 적을 수 있습니다.`;
+      loadDecisions();
+    } catch (err) { msg.textContent = err.message; }
+  });
+  feed.lastElementChild?.appendChild(el);
+}
+
+function addSaveBar(text, host, name) {
   const el = document.createElement('div');
   el.className = 'save-bar';
-  const base = (agenda || '회의결과').replace(/[\\/:*?"<>|\n]/g, ' ').slice(0, 30).trim() || '회의결과';
+  const base = (name || agenda || '회의결과').replace(/[\\/:*?"<>|\n]/g, ' ').slice(0, 30).trim() || '회의결과';
   el.innerHTML = `<span>결과물로 저장</span><input type="text" class="sv-name" value="${esc(base)}" aria-label="파일 이름"><select class="sv-fmt" aria-label="형식"><option value="md">.md</option><option value="docx">.docx (워드)</option><option value="xlsx">.xlsx (엑셀, 표만)</option><option value="pptx">.pptx (파워포인트)</option><option value="html">.html</option><option value="txt">.txt</option><option value="csv">.csv</option></select><button type="button" class="sv-go">저장</button><span class="save-msg" role="status"></span>`;
   const msg = el.querySelector('.save-msg');
   el.querySelector('.sv-go').addEventListener('click', async () => {
     const dir = folderRoot || $('folderPath').value.trim();
     if (!dir) { msg.className = 'save-msg err'; msg.textContent = '먼저 폴더에서 저장할 폴더를 지정하세요'; $('folderPanel').hidden = false; return; }
     try {
-      const r = await postJson('/api/folder/save', { path: dir, name: el.querySelector('.sv-name').value, format: el.querySelector('.sv-fmt').value, content: text });
+      const r = await postJson('/api/folder/save', { path: dir, name: el.querySelector('.sv-name').value, format: el.querySelector('.sv-fmt').value, content: typeof text === 'function' ? text() : text });
       msg.className = 'save-msg';
       msg.textContent = `저장했습니다: ${r.path}`;
     } catch (err) {
@@ -741,7 +795,7 @@ function addSaveBar(text) {
       msg.textContent = err.message;
     }
   });
-  feed.lastElementChild?.appendChild(el);
+  (host || feed.lastElementChild)?.appendChild(el);
 }
 
 // 회의 끝 알림: 다른 창에서 일하는 동안에도 알 수 있게 소리, 탭 제목 깜박임, (허락했다면) 브라우저 알림을 쓴다.
@@ -781,14 +835,14 @@ $('notifyEnd').addEventListener('change', () => {
   if ($('notifyEnd').checked) { beep(); try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {} }
 });
 
-async function runMeeting(question) {
+async function runMeeting(question, prec = []) {
   const chosen = selected();
   if (!chosen.length) return add('<div>참가할 AI를 한 명 이상 선택하세요.</div>', 'err');
 
   add(esc(question) + (attachments.length ? `<div class="att-names">첨부: ${attachments.map((a) => esc(a.name)).join(', ')}</div>` : ''), 'user');
   setBusy(true);
   controller = new AbortController();
-  const ctx = { labels: {}, conclusion: null, title: question.replace(/^\[안건:\s*([^\]\n]+)\][\s\S]*/, '$1').split('\n')[0].slice(0, 60) };
+  const ctx = { labels: {}, conclusion: null, question: question.slice(0, 600), title: question.replace(/^\[안건:\s*([^\]\n]+)\][\s\S]*/, '$1').split('\n')[0].slice(0, 60) };
   agenda = question.length > 70 ? question.slice(0, 70) + '…' : question;
   refreshStage();
   officeBegin();
@@ -805,6 +859,7 @@ async function runMeeting(question) {
         persona: sg,
         premortem: $('premortem').checked,
         carryActions: carryOn(),
+        precedents: prec,
         ...roundsBody(),
         moderator: $('moderator').value,
         maxCalls: Number($('maxCalls').value),
@@ -889,8 +944,10 @@ form.addEventListener('submit', async (e) => {
   if (!precheck()) return;
   qEl.value = '';
   clearAgendaValues();
+  const prec = chosenPrecedents();
+  hideSimilar();
   $('agendaBox').open = false; // 보낸 뒤에는 접어서 화면을 넓게 쓴다
-  runMeeting(q);
+  runMeeting(q, prec);
 });
 qEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) form.requestSubmit(); });
 stopBtn.addEventListener('click', () => controller?.abort());
@@ -1238,6 +1295,66 @@ $('todoList').addEventListener('click', async (e) => {
 });
 loadTodos();
 
+// --- 결정 기록: 결론을 결정으로 남기고, 재검토 때 결과를 적고, 비슷한 안건에서 참고한다 ---
+let decisions = [], dueIds = new Set();
+const OUT = { '': '결과 미정', good: '잘 됨', mixed: '절반만 됨', bad: '잘 안 됨' };
+const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+async function loadDecisions(first = false) {
+  try { const d = await (await fetch('/api/decisions')).json(); decisions = d.items || []; dueIds = new Set(d.due || []); } catch { return; }
+  renderDecisions();
+  if (first && dueIds.size) {
+    const el = add(`<div class="msg-head"><span class="verdict no">재검토</span>재검토할 결정이 <b>${dueIds.size}건</b> 있습니다 <small>결과를 적어 두면 다음 회의에서 참고합니다</small></div><div class="msg-body"><button type="button" class="dec-open">추적 탭에서 보기</button></div>`, 'dec-card');
+    el.querySelector('.dec-open').addEventListener('click', () => showSideTab('todo'));
+  }
+}
+function renderDecisions() {
+  $('decDot').hidden = dueIds.size === 0;
+  const mode = $('decFilter').value;
+  $('decState').textContent = decisions.length ? `(${decisions.length}건${dueIds.size ? ` · 재검토 ${dueIds.size}` : ''})` : '';
+  const list = decisions.filter((d) => mode === 'all' || (mode === 'live' ? d.status !== 'dropped' : d.status === 'decided')).sort((a, b) => (dueIds.has(b.id) ? 1 : 0) - (dueIds.has(a.id) ? 1 : 0) || String(a.reviewDate || '9999').localeCompare(String(b.reviewDate || '9999')));
+  $('decList').innerHTML = list.length ? list.map((d) => `<div class="todo-item ${d.status === 'dropped' ? 'cancel' : d.status === 'reviewed' ? 'done' : ''}" data-did="${esc(d.id)}">
+    <div class="todo-top"><select data-f="status" aria-label="상태"><option value="decided"${d.status === 'decided' ? ' selected' : ''}>결과 기록 전</option><option value="reviewed"${d.status === 'reviewed' ? ' selected' : ''}>재검토 완료</option><option value="dropped"${d.status === 'dropped' ? ' selected' : ''}>폐기</option></select><input type="text" class="todo-text" data-f="title" value="${esc(d.title)}" aria-label="제목"><button type="button" class="ghost todo-del" data-ddel aria-label="삭제">×</button></div>
+    <p class="dec-sum">${esc(d.summary)}</p>
+    <div class="todo-row"><label>재검토일 <input type="date" data-f="reviewDate" value="${esc(d.reviewDate || '')}" aria-label="재검토일"></label><select data-f="outcome" aria-label="결과">${Object.entries(OUT).map(([k, v]) => `<option value="${k}"${d.outcome === k ? ' selected' : ''}>${v}</option>`).join('')}</select></div>
+    <div class="todo-row"><input type="text" data-f="result" value="${esc(d.result || '')}" placeholder="실제 결과·수치 메모" aria-label="결과 메모"></div>
+    <small>${dueIds.has(d.id) ? '<span class="due-tag">재검토할 때입니다</span> · ' : ''}${esc(String(d.created).slice(0, 10))} 결정</small></div>`).join('') : `<p class="hint">${decisions.length ? '결과를 기다리는 결정이 없습니다.' : '아직 기록한 결정이 없습니다. 회의 결론 아래의 "결정 기록" 카드에서 기록할 수 있습니다.'}</p>`;
+}
+$('decFilter').addEventListener('change', renderDecisions);
+$('decList').addEventListener('change', async (e) => {
+  const row = e.target.closest('[data-did]'), f = e.target.dataset.f;
+  if (!row || !f) return;
+  try { await postJson('/api/decisions/update', { id: row.dataset.did, patch: { [f]: e.target.value } }); $('decMsg').textContent = ''; }
+  catch (err) { $('decMsg').textContent = err.message; }
+  loadDecisions();
+});
+$('decList').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-ddel]');
+  if (!b || !confirm('이 결정 기록을 지울까요?')) return;
+  try { await postJson('/api/decisions/delete', { id: b.closest('[data-did]').dataset.did }); } catch (err) { $('decMsg').textContent = err.message; }
+  loadDecisions();
+});
+loadDecisions(true);
+
+// 비슷한 지난 결정: 질문을 쓰는 동안 찾아서 보여 주고, 사용자가 체크한 것만 이번 회의 참고로 올린다
+let simTimer = null, simSeq = 0;
+const chosenPrecedents = () => [...document.querySelectorAll('#similarBox [data-pid]:checked')].map((c) => c.dataset.pid);
+function hideSimilar() { $('similarBox').hidden = true; $('similarBox').innerHTML = ''; }
+async function updateSimilar() {
+  const q = buildQuestion(qEl.value.trim());
+  if (meetingRunning || q.length < 10) return hideSimilar();
+  const seq = ++simSeq;
+  let r;
+  try { r = await postJson('/api/decisions/similar', { question: q }); } catch { return; }
+  if (seq !== simSeq) return;
+  if (!r.items.length) return hideSimilar();
+  const keep = new Set(chosenPrecedents());
+  $('similarBox').hidden = false;
+  $('similarBox').innerHTML = `<b>비슷한 지난 결정 ${r.items.length}건</b> <small>체크하면 이번 회의에 참고로 올리고, 결론이 과거 결정과 같은 방향인지 짚게 합니다</small>` + r.items.map((d) => `<label class="sim-item"><input type="checkbox" data-pid="${esc(d.id)}"${keep.has(d.id) ? ' checked' : ''}><span><b>${esc(d.title)}</b> <small>${esc(String(d.created).slice(0, 10))} · <span class="${d.outcome === 'bad' ? 'sim-out-bad' : d.outcome === 'good' ? 'sim-out-good' : ''}">${esc(OUT[d.outcome || ''])}${d.result ? ' — ' + esc(d.result) : ''}</span></small><small>${esc(d.summary.slice(0, 140))}</small></span></label>`).join('');
+}
+const scheduleSimilar = () => { clearTimeout(simTimer); simTimer = setTimeout(updateSimilar, 800); };
+qEl.addEventListener('input', scheduleSimilar);
+$('agendaForm').addEventListener('change', scheduleSimilar);
+
 // --- 연결 설정: 키 저장, 연결 확인, 저장 폴더 쓰기 점검 ---
 let setupInfo = null;
 async function loadSetup() {
@@ -1310,8 +1427,9 @@ $('backupFile').addEventListener('change', async () => {
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
     const prof = { restored: '회사 정보를 가져왔습니다', kept: '회사 정보는 이미 있어 덮어쓰지 않았습니다(백업 파일 안에 남아 있습니다)', same: '회사 정보는 같습니다', rejected: '회사 정보를 가져오지 못했습니다', none: '' }[d.profile] || '';
-    msg.textContent = `회의록 ${d.added}건${d.actions ? `, 할 일 ${d.actions}건` : ''}을 가져왔습니다${d.existing ? ` (이미 있어 건너뜀 ${d.existing}건)` : ''}${d.rejected ? ` · 읽지 못한 파일 ${d.rejected}건` : ''}. ${prof}`;
+    msg.textContent = `회의록 ${d.added}건${d.actions ? `, 할 일 ${d.actions}건` : ''}${d.decisions ? `, 결정 ${d.decisions}건` : ''}을 가져왔습니다${d.existing ? ` (이미 있어 건너뜀 ${d.existing}건)` : ''}${d.rejected ? ` · 읽지 못한 파일 ${d.rejected}건` : ''}. ${prof}`;
     if (d.actions) loadTodos();
+    if (d.decisions) loadDecisions();
     if (d.profile === 'restored') { const p = await (await fetch('/api/profile')).json(); $('profileText').value = p.text || ''; profileState(); }
   } catch (err) {
     msg.textContent = `불러오지 못했습니다: ${err.message}`;

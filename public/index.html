@@ -20,7 +20,7 @@
         <button type="button" role="tab" data-tab="people" aria-selected="true">참가자</button>
         <button type="button" role="tab" data-tab="meeting" aria-selected="false">회의</button>
         <button type="button" role="tab" data-tab="data" aria-selected="false">자료·보호</button>
-        <button type="button" role="tab" data-tab="todo" aria-selected="false">할 일<i id="todoCount" class="tab-count" hidden></i></button>
+        <button type="button" role="tab" data-tab="todo" aria-selected="false">추적<i id="todoCount" class="tab-count" hidden></i><i id="decDot" class="tab-dot" hidden></i></button>
         <button type="button" role="tab" data-tab="conn" aria-selected="false">연결·백업<i id="connDot" class="tab-dot" hidden></i></button>
       </div>
       <section class="side-panel" data-panel="people" role="tabpanel">
@@ -121,6 +121,14 @@
         </label>
         <div id="todoList" class="todo-list"></div>
         <p id="todoMsg" class="hint" role="status"></p>
+
+        <h2>결정 기록 <small id="decState"></small></h2>
+        <p class="hint">회의 결론을 <b>결정</b>으로 기록해 두고, 재검토할 날짜가 되면 <b>결과</b>를 적습니다. 비슷한 안건으로 회의를 열면 과거 결정과 그 결과를 참고로 올릴 수 있습니다. 회의록 폴더의 <b>결정기록.json</b> 에 저장되고 백업에 포함됩니다.</p>
+        <label class="field">보기
+          <select id="decFilter"><option value="live">전체(폐기 제외)</option><option value="open">결과 기록 전만</option><option value="all">폐기 포함</option></select>
+        </label>
+        <div id="decList" class="todo-list"></div>
+        <p id="decMsg" class="hint" role="status"></p>
       </section>
       <section class="side-panel" data-panel="conn" role="tabpanel" hidden>
       <details id="setupBox" class="side-box">
@@ -157,6 +165,7 @@
       </div>
       <form id="form" class="composer">
         <div id="ctxChips" class="ctx-chips" hidden></div>
+        <div id="similarBox" class="similar-box" hidden></div>
         <details id="agendaBox" class="agenda-box">
           <summary><span>안건 양식</span><select id="agendaForm" aria-label="안건 양식"></select></summary>
           <div id="agendaFields" class="agenda-fields"></div>
