@@ -4,7 +4,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { loadEnv, appDir } = require('./lib/env');
 loadEnv();
-const { PROVIDERS, isConfigured, hasApiKey, cliAvailable, defaultModel, pinnedModel, isMock, EFFORTS } = require('./lib/providers');
+const { PROVIDERS, isConfigured, hasApiKey, cliAvailable, defaultModel, callProvider, pinnedModel, isMock, EFFORTS } = require('./lib/providers');
 
 // 단일 실행파일(SEA)로 실행 중이면 화면 파일을 실행파일 안에서 읽는다.
 let sea = null;
@@ -16,6 +16,8 @@ const { runCouncil } = require('./lib/council');
 const { listAllModels, cliModelChoices } = require('./lib/models');
 const { PERSONAS, SAGE } = require('./lib/personas');
 const backup = require('./lib/backup');
+const setup = require('./lib/setup');
+const actions = require('./lib/actions');
 const { scanFolder, saveOutput, readFolderXlsx } = require('./lib/folder');
 const { ROLES, TEAMS, publicRoles } = require('./lib/roles');
 const { estimate } = require('./lib/estimate');
@@ -149,6 +151,7 @@ async function handleXlsx(req, res, url) {
 function config() {
   return {
     mock: isMock(),
+    setupNeeded: !isMock() && !Object.keys(PROVIDERS).some((id) => hasApiKey(id) || cliAvailable(id)),
     defaultMode: explicitMode || autoMode(),
     sage: SAGE,
     defaultMaxCalls: DEFAULT_MAX_CALLS,
@@ -228,6 +231,26 @@ async function handleEstimate(req, res) {
 }
 const clampCalls = (v) => Math.min(MAX_CALLS_LIMIT, Math.max(10, Math.floor(Number(v)) || DEFAULT_MAX_CALLS));
 
+// 연결 확인: 아주 짧은 요청 한 번(유료 API 는 아주 적은 비용). 키나 오류 문구에 키가 섞이면 지워서 돌려준다.
+let setupTesting = false;
+async function handleSetupTest(req, res) {
+  let b;
+  try { b = JSON.parse((await readBody(req, 2_000)) || '{}'); } catch { return sendJson(res, 400, { error: '잘못된 요청입니다' }); }
+  const id = String(b.provider || '');
+  const mode = b.mode === 'cli' ? 'cli' : 'api';
+  if (!PROVIDERS[id]) return sendJson(res, 400, { error: '알 수 없는 AI 입니다' });
+  if (mode === 'cli' && !PROVIDERS[id].cli) return sendJson(res, 400, { error: '이 AI 는 CLI 방식이 없습니다' });
+  if (setupTesting) return sendJson(res, 429, { error: '다른 연결 확인이 진행 중입니다' });
+  setupTesting = true;
+  const t0 = Date.now();
+  try {
+    const out = await callProvider(id, { mode, system: '연결 확인용입니다. 짧게 답하세요.', prompt: '연결 확인입니다. OK 라고만 답하세요.', signal: AbortSignal.timeout(60000) });
+    return sendJson(res, 200, { ok: true, ms: Date.now() - t0, reply: setup.scrub(String(out).trim().slice(0, 40)) });
+  } catch (e) {
+    return sendJson(res, 200, { ok: false, ms: Date.now() - t0, error: setup.scrub(String(e.message || e).slice(0, 300)) });
+  } finally { setupTesting = false; }
+}
+
 // 진행 중인 회의: 사람이 회의 도중에 끼어들거나 "결론 내 달라"고 할 수 있다.
 const liveMeetings = new Map(); // id -> { notes: [], cursor, wrap, redactor, emit }
 const MAX_NOTES = 10;
@@ -265,6 +288,7 @@ async function handleRedactPreview(req, res) {
   try { b = JSON.parse(await readBody(req, 6_000_000)); } catch { return sendJson(res, 400, { error: '잘못된 요청입니다' }); }
   const atts = (Array.isArray(b.attachments) ? b.attachments : []).slice(0, MAX_ATTACH_FILES).map((a) => ({ name: String(a?.name || '').slice(0, 200), text: String(a?.text || '') }));
   if (b.useProfile !== false) { const pa = profile.profileAttachment(); if (pa) atts.unshift(pa); }
+  if (b.carryActions === true) { const ca = actions.carryAttachment(minutesDir()); if (ca) atts.unshift({ name: ca.name, text: ca.text }); }
   const pinned = (Array.isArray(b.pinned) ? b.pinned : []).slice(0, 3).map((h) => ({ question: String(h.question || '').slice(0, 500), conclusion: String(h.conclusion || '').slice(0, 3000) }));
   const rr = redactRequest({ question: String(b.question || '').slice(0, 8000), attachments: atts, history: pinned }, redactOptions(b.redact || {}));
   return sendJson(res, 200, { report: rr.report });
@@ -342,6 +366,9 @@ async function handleCouncil(req, res) {
   // 회의록: 이벤트를 받을 때마다 파일에 남기므로 중간에 끊기거나 오류가 나도 그때까지의 기록이 남는다.
   // 회사 정보는 첨부 자료처럼 맨 앞에 들어간다(꺼 둘 수 있다). 용량 검사는 위에서 사용자 첨부에만 적용한다.
   if (body.useProfile !== false) { const pa = profile.profileAttachment(); if (pa) attachments.unshift(pa); }
+  // 이전 회의에서 사람이 확정한 미완료 할 일을 이번 회의 자료로 올린다(켠 경우만)
+  let carried = 0;
+  if (body.carryActions === true) { const ca = actions.carryAttachment(minutesDir()); if (ca) { attachments.unshift({ name: ca.name, text: ca.text }); carried = ca.count; } }
   // 개인정보 가리기: AI 로 보내는 질문·첨부·이전 회의에서 전화번호 등을 가명으로 바꾼다(기본 켜짐). 회의록에도 가린 글이 남는다.
   const ro = body.redact && typeof body.redact === 'object' ? body.redact : {};
   let q2 = question, atts = attachments, history = history0, redaction = null, redactor = null;
@@ -369,7 +396,7 @@ async function handleCouncil(req, res) {
   activeMeetings++;
   let status = '완료';
   try {
-    await runCouncil({ question: q2, participants, attachments: atts, rounds, consensus, unlimited, maxRounds, maxCalls, moderator, history, mode, persona: body.persona === true, premortem: body.premortem === true, human, emit, signal: ac.signal });
+    await runCouncil({ question: q2, participants, attachments: atts, rounds, consensus, unlimited, maxRounds, maxCalls, moderator, history, mode, persona: body.persona === true, premortem: body.premortem === true, carried, human, emit, signal: ac.signal });
   } catch (err) {
     status = '오류로 종료';
     emit({ type: 'error', error: String(err.message || err) });
@@ -394,6 +421,37 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/profile') {
       try { const { text } = JSON.parse((await readBody(req, 100_000)) || '{}'); return sendJson(res, 200, { text: profile.writeProfile(text) }); }
       catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/setup') {
+      const names = setup.keyNames();
+      return sendJson(res, 200, {
+        mock: isMock(),
+        envFile: setup.envFile(),
+        checks: setup.checks({ minutesDir: minutesDir(), profileFile: process.env.PROFILE_FILE || path.join(appDir(), '회사정보.md') }),
+        providers: Object.entries(PROVIDERS).filter(([id]) => names[id] || PROVIDERS[id].keyless || PROVIDERS[id].cli).map(([id, p]) => ({
+          id, label: p.label, vendor: p.vendor, keyEnv: names[id] || null, canSetKey: Boolean(names[id]),
+          apiConfigured: hasApiKey(id), cliSupported: Boolean(p.cli), cliAvailable: cliAvailable(id), extra: Boolean(p.compat),
+        })),
+      });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/setup/key') {
+      try {
+        const b = JSON.parse((await readBody(req, 5_000)) || '{}');
+        setup.setKey(String(b.provider || ''), b.remove === true ? null : b.key);
+        return sendJson(res, 200, { ok: true, apiConfigured: hasApiKey(String(b.provider)) });
+      } catch (e) { return sendJson(res, 400, { error: setup.scrub(e.message || e) }); }
+    }
+    if (req.method === 'POST' && url.pathname === '/api/setup/test') return await handleSetupTest(req, res);
+    if (req.method === 'GET' && url.pathname === '/api/actions') return sendJson(res, 200, { items: actions.load(minutesDir()) });
+    if (req.method === 'POST' && url.pathname.startsWith('/api/actions/')) {
+      try {
+        const b = JSON.parse((await readBody(req, 60_000)) || '{}');
+        const act = url.pathname.slice('/api/actions/'.length);
+        if (act === 'add') return sendJson(res, 200, actions.add(minutesDir(), b.meeting, b.items));
+        if (act === 'update') return sendJson(res, 200, { item: actions.update(minutesDir(), String(b.id || ''), b.patch) });
+        if (act === 'delete') { actions.remove(minutesDir(), String(b.id || '')); return sendJson(res, 200, { ok: true }); }
+        return sendJson(res, 404, { error: '없는 요청입니다' });
+      } catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
     }
     if (req.method === 'GET' && url.pathname === '/api/backup') {
       const { buffer, meta } = backup.build({ minutesDir: minutesDir(), profileText: profile.readProfile() });

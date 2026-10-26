@@ -16,6 +16,14 @@
 
       <label class="theme-toggle"><input type="checkbox" id="sg"> <span>삼국지 모드 <small>유비 · 관우 · 장비</small></span></label>
 
+      <div class="side-tabs" id="sideTabs" role="tablist" aria-label="설정 메뉴">
+        <button type="button" role="tab" data-tab="people" aria-selected="true">참가자</button>
+        <button type="button" role="tab" data-tab="meeting" aria-selected="false">회의</button>
+        <button type="button" role="tab" data-tab="data" aria-selected="false">자료·보호</button>
+        <button type="button" role="tab" data-tab="todo" aria-selected="false">할 일<i id="todoCount" class="tab-count" hidden></i></button>
+        <button type="button" role="tab" data-tab="conn" aria-selected="false">연결·백업<i id="connDot" class="tab-dot" hidden></i></button>
+      </div>
+      <section class="side-panel" data-panel="people" role="tabpanel">
       <h2>실행 방식</h2>
       <div class="seg" id="mode" role="radiogroup" aria-label="실행 방식">
         <label><input type="radio" name="mode" value="api"><span>API 키</span></label>
@@ -42,42 +50,8 @@
       </div>
       <p class="hint">역할을 고르면 그 직업 전문가의 관점과 점검 항목으로 발언합니다. <b>생각 깊이</b>는 AI가 답하기 전에 얼마나 깊이 따져 볼지입니다(높을수록 느리고 사용량이 늘어납니다).</p>
 
-      <details id="profileBox" class="side-box">
-        <summary>회사 정보 <small id="profileState"></small></summary>
-        <p class="hint">우리 회사의 사업, 조직, KPI 산식을 적어 두면 모든 회의에 자료로 자동 첨부됩니다. 실행파일 옆 <b>회사정보.md</b> 파일로 저장되고 메모장으로도 고칠 수 있습니다. (AI에 전송되니 개인정보·비밀번호는 적지 마세요)</p>
-        <textarea id="profileText" rows="9" aria-label="회사 정보" spellcheck="false"></textarea>
-        <div class="half-row"><button type="button" id="profileSave" class="ghost">저장</button><button type="button" id="profileTemplate" class="ghost">예시 넣기</button></div>
-        <label class="check"><input type="checkbox" id="useProfile" checked> <span>회의에 사용</span></label>
-        <p id="profileMsg" class="hint" role="status"></p>
-      </details>
-
-      <details id="backupBox" class="side-box">
-        <summary>백업·옮기기</summary>
-        <p class="hint">저장된 <b>회의록</b>과 <b>회사 정보</b>를 zip 하나로 내려받고, 다른 PC의 이 프로그램에서 다시 불러올 수 있습니다. API 키(.env)와 첨부 원본은 들어가지 않습니다. 불러올 때 이미 있는 파일은 덮어쓰지 않습니다.</p>
-        <div class="half-row"><a id="backupDl" class="ghost btn-link" href="/api/backup" download>백업 내려받기</a><button type="button" id="backupUp" class="ghost">백업 불러오기</button></div>
-        <input type="file" id="backupFile" accept=".zip" hidden>
-        <p id="backupMsg" class="hint" role="status"></p>
-      </details>
-
-      <details id="privacyBox" class="side-box">
-        <summary>개인정보 보호 <small id="privacyState"></small></summary>
-        <p class="hint">AI 로 보내기 전에 전화번호, 주민번호, 이메일, 계좌, 차량번호를 <b>[전화1]</b> 같은 가명으로 바꿉니다. 같은 번호는 같은 가명이라 AI 가 구분은 할 수 있습니다. 회의록에도 가린 글이 저장됩니다.</p>
-        <label class="check"><input type="checkbox" id="redactOn" checked> <span>전송 전에 가리기</span></label>
-        <div class="cat-grid">
-          <label class="check"><input type="checkbox" data-rd="phone" checked> <span>전화번호</span></label>
-          <label class="check"><input type="checkbox" data-rd="rrn" checked> <span>주민번호</span></label>
-          <label class="check"><input type="checkbox" data-rd="email" checked> <span>이메일</span></label>
-          <label class="check"><input type="checkbox" data-rd="account" checked> <span>계좌·긴 번호</span></label>
-          <label class="check"><input type="checkbox" data-rd="plate" checked> <span>차량번호</span></label>
-        </div>
-        <label class="field">가릴 이름·단어 <small>한 줄에 하나(기사 이름 등)</small>
-          <textarea id="redactNames" rows="4" spellcheck="false" placeholder="홍길동&#10;김철수"></textarea>
-        </label>
-        <button type="button" id="redactPreviewBtn" class="ghost">지금 질문·첨부로 미리보기</button>
-        <div id="redactPreview" class="redact-preview" role="status"></div>
-        <p class="hint">찾지 못하는 것: 주소, 목록에 없는 이름, 이미지 속 글자. 중요한 자료는 미리보기로 확인하세요.</p>
-      </details>
-
+      </section>
+      <section class="side-panel" data-panel="meeting" role="tabpanel" hidden>
       <h2>회의 설정</h2>
       <label class="field">토론 라운드
         <select id="rounds">
@@ -107,6 +81,66 @@
       <label class="check"><input type="checkbox" id="premortem"> <span>사전 부검 <small>결론 뒤에 "이 결정이 실패한다면" 이유 3가지를 AI 호출 1회로 덧붙임</small></span></label>
       <label class="check"><input type="checkbox" id="notifyEnd" checked> <span>회의 끝 알림 <small>소리 · 탭 제목 깜박임 · 브라우저 알림</small></span></label>
       <button id="reset" class="ghost" type="button">새 회의 시작</button>
+      </section>
+      <section class="side-panel" data-panel="data" role="tabpanel" hidden>
+      <details id="profileBox" class="side-box">
+        <summary>회사 정보 <small id="profileState"></small></summary>
+        <p class="hint">우리 회사의 사업, 조직, KPI 산식을 적어 두면 모든 회의에 자료로 자동 첨부됩니다. 실행파일 옆 <b>회사정보.md</b> 파일로 저장되고 메모장으로도 고칠 수 있습니다. (AI에 전송되니 개인정보·비밀번호는 적지 마세요)</p>
+        <textarea id="profileText" rows="9" aria-label="회사 정보" spellcheck="false"></textarea>
+        <div class="half-row"><button type="button" id="profileSave" class="ghost">저장</button><button type="button" id="profileTemplate" class="ghost">예시 넣기</button></div>
+        <label class="check"><input type="checkbox" id="useProfile" checked> <span>회의에 사용</span></label>
+        <p id="profileMsg" class="hint" role="status"></p>
+      </details>
+
+      <details id="privacyBox" class="side-box">
+        <summary>개인정보 보호 <small id="privacyState"></small></summary>
+        <p class="hint">AI 로 보내기 전에 전화번호, 주민번호, 이메일, 계좌, 차량번호를 <b>[전화1]</b> 같은 가명으로 바꿉니다. 같은 번호는 같은 가명이라 AI 가 구분은 할 수 있습니다. 회의록에도 가린 글이 저장됩니다.</p>
+        <label class="check"><input type="checkbox" id="redactOn" checked> <span>전송 전에 가리기</span></label>
+        <div class="cat-grid">
+          <label class="check"><input type="checkbox" data-rd="phone" checked> <span>전화번호</span></label>
+          <label class="check"><input type="checkbox" data-rd="rrn" checked> <span>주민번호</span></label>
+          <label class="check"><input type="checkbox" data-rd="email" checked> <span>이메일</span></label>
+          <label class="check"><input type="checkbox" data-rd="account" checked> <span>계좌·긴 번호</span></label>
+          <label class="check"><input type="checkbox" data-rd="plate" checked> <span>차량번호</span></label>
+        </div>
+        <label class="field">가릴 이름·단어 <small>한 줄에 하나(기사 이름 등)</small>
+          <textarea id="redactNames" rows="4" spellcheck="false" placeholder="홍길동&#10;김철수"></textarea>
+        </label>
+        <button type="button" id="redactPreviewBtn" class="ghost">지금 질문·첨부로 미리보기</button>
+        <div id="redactPreview" class="redact-preview" role="status"></div>
+        <p class="hint">찾지 못하는 것: 주소, 목록에 없는 이름, 이미지 속 글자. 중요한 자료는 미리보기로 확인하세요.</p>
+      </details>
+
+      </section>
+      <section class="side-panel" data-panel="todo" role="tabpanel" hidden>
+        <h2>할 일 <small id="todoState"></small></h2>
+        <p class="hint">회의 결론의 <b>실행 계획</b>을 확인해 담아 두고 진행 상황을 기록합니다. 담당·기한은 AI의 제안이라 <b>담을 때 사람이 확인·수정</b>합니다. 이 목록은 회의록 폴더의 <b>실행항목.json</b> 에 저장되고 백업에도 포함됩니다.</p>
+        <label class="check"><input type="checkbox" id="carryActions" checked> <span>다음 회의에 미완료 할 일 올리기 <small>진행 중인 항목만 자료로 넣고, 결론에서 상태를 짚게 합니다</small></span></label>
+        <label class="field">보기
+          <select id="todoFilter"><option value="open">진행 중·보류</option><option value="all">전체(완료·취소 포함)</option></select>
+        </label>
+        <div id="todoList" class="todo-list"></div>
+        <p id="todoMsg" class="hint" role="status"></p>
+      </section>
+      <section class="side-panel" data-panel="conn" role="tabpanel" hidden>
+      <details id="setupBox" class="side-box">
+        <summary>연결 설정 <small id="setupState"></small></summary>
+        <p class="hint">AI 서비스의 <b>API 키</b>를 여기에 붙여 넣으면 실행파일 옆 <b>.env</b> 에 저장되고 바로 쓸 수 있습니다(재실행 불필요). 저장한 키는 화면에 다시 나오지 않습니다. CLI 로그인 방식은 키가 필요 없습니다.</p>
+        <div id="setupList" class="setup-list"></div>
+        <p class="hint"><b>연결 확인</b>은 아주 짧은 요청을 AI에게 한 번 보냅니다. 유료 API는 아주 적은 비용이 듭니다.</p>
+        <div id="setupChecks" class="setup-checks"></div>
+        <p id="setupMsg" class="hint" role="status"></p>
+      </details>
+
+      <details id="backupBox" class="side-box">
+        <summary>백업·옮기기</summary>
+        <p class="hint">저장된 <b>회의록</b>과 <b>회사 정보</b>를 zip 하나로 내려받고, 다른 PC의 이 프로그램에서 다시 불러올 수 있습니다. API 키(.env)와 첨부 원본은 들어가지 않습니다. 불러올 때 이미 있는 파일은 덮어쓰지 않습니다.</p>
+        <div class="half-row"><a id="backupDl" class="ghost btn-link" href="/api/backup" download>백업 내려받기</a><button type="button" id="backupUp" class="ghost">백업 불러오기</button></div>
+        <input type="file" id="backupFile" accept=".zip" hidden>
+        <p id="backupMsg" class="hint" role="status"></p>
+      </details>
+
+      </section>
     </aside>
 
     <main class="main">
