@@ -1295,6 +1295,67 @@ $('todoList').addEventListener('click', async (e) => {
 });
 loadTodos();
 
+// --- 사용량·비용: 저장된 회의록에서 호출 수와 글자 수를 모아 보고, 사용자가 넣은 단가로 비용을 추정한다 ---
+let usageData = null;
+const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+const fmtN = (n) => Math.round(n).toLocaleString('ko-KR');
+function usageCalc() {
+  const ratio = Number($('tokRatio').value) || 0.7, prices = lsGet('usagePrices', {});
+  const rows = usageData.byProvider.map((r) => {
+    const inTok = r.inChars * ratio, outTok = r.outChars * ratio, p = prices[r.provider] || {};
+    const priced = r.via === 'api' && (Number(p.in) > 0 || Number(p.out) > 0);
+    return { ...r, inTok, outTok, cost: priced ? (inTok * (Number(p.in) || 0) + outTok * (Number(p.out) || 0)) / 1e6 : null, priced };
+  });
+  return { rows, cost: rows.reduce((a, r) => a + (r.cost || 0), 0), anyPriced: rows.some((r) => r.priced) };
+}
+function renderUsage() {
+  const d = usageData;
+  if (!d) return;
+  const unit = $('priceUnit').value || '$';
+  const { rows, cost, anyPriced } = usageCalc();
+  const t = d.totals;
+  const nameOf2 = (id) => d.labels[id] || id;
+  $('usageBody').innerHTML = !t.meetings ? '<p class="hint">이 기간에 저장된 회의록이 없습니다. (회의록 자동 저장을 켜 두었을 때만 집계됩니다)</p>' : `
+    <div class="cards"><div class="card"><b>${fmtN(t.meetings)}회</b><small>회의</small></div><div class="card"><b>${fmtN(t.calls)}회</b><small>AI 호출 (API ${fmtN(t.apiCalls)} · CLI ${fmtN(t.cliCalls)}${t.withDetail < t.meetings ? ` · 상세 없는 옛 회의 ${t.meetings - t.withDetail}건 제외` : ''})</small></div><div class="card"><b>약 ${fmtN((t.inChars + t.outChars) * (Number($('tokRatio').value) || 0.7) / 1000)}천</b><small>추정 토큰 (입력 ${fmtN(t.inChars * (Number($('tokRatio').value) || 0.7) / 1000)}천 · 출력 ${fmtN(t.outChars * (Number($('tokRatio').value) || 0.7) / 1000)}천)</small></div><div class="card"><b>${anyPriced ? `${esc(unit)}${cost.toFixed(2)}` : '—'}</b><small>${anyPriced ? '추정 비용(API만, 입력한 단가 기준)' : '단가를 입력하면 추정 비용이 나옵니다'}</small></div></div>
+    <table><thead><tr><th>AI</th><th>방식</th><th>호출</th><th>추정 입력 토큰</th><th>추정 출력 토큰</th><th>추정 비용</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(nameOf2(r.provider))}</td><td>${r.via === 'cli' ? 'CLI(구독)' : 'API'}</td><td>${fmtN(r.calls)}</td><td>${fmtN(r.inTok)}</td><td>${fmtN(r.outTok)}</td><td>${r.cost != null ? `${esc(unit)}${r.cost.toFixed(2)}` : r.via === 'cli' ? '토큰 과금 아님' : '단가 없음'}</td></tr>`).join('') || '<tr><td colspan="6">상세 기록이 있는 회의가 없습니다</td></tr>'}</tbody></table>
+    <div class="scroll"><table><thead><tr><th>회의</th><th>일시</th><th>호출</th><th>참가</th><th>상태</th></tr></thead><tbody>${d.meetings.map((m) => `<tr><td>${esc(m.title)}</td><td>${esc(fmtDate(m.startedAt))}</td><td>${fmtN(m.calls)}${m.hasDetail ? '' : ' *'}</td><td>${m.participants}명</td><td>${esc(m.status)}</td></tr>`).join('')}</tbody></table></div>
+    <p class="hint">* 표시는 상세 기록이 없는 옛 회의(호출 수만 있음)입니다. 글자 수는 회의 중 모든 AI 호출에 보낸·받은 글자의 합이며, 토큰과 비용은 어림값입니다. 문서 초안·연결 확인 호출과 AI 서비스 쪽 재시도, 캐시 할인은 반영되지 않으니 실제 청구서가 기준입니다.</p>`;
+}
+async function loadUsage() {
+  $('usageBody').innerHTML = '<p class="hint">불러오는 중…</p>';
+  try { usageData = await (await fetch(`/api/usage?days=${$('usageDays').value}`)).json(); renderUsage(); }
+  catch (e) { $('usageBody').innerHTML = `<p class="hint err">${esc(e.message)}</p>`; }
+}
+function renderPriceRows() {
+  const prices = lsGet('usagePrices', {});
+  const ids = usageData ? [...new Set(usageData.byProvider.filter((r) => r.via === 'api').map((r) => r.provider))] : [];
+  $('priceRows').innerHTML = ids.length ? '<div class="price-row"><b>AI</b><b>입력 단가/100만 토큰</b><b>출력 단가/100만 토큰</b></div>' + ids.map((id) => `<div class="price-row" data-pid2="${esc(id)}"><span>${esc(usageData.labels[id] || id)}</span><input type="number" min="0" step="any" data-pf="in" value="${esc(prices[id]?.in ?? '')}" aria-label="입력 단가"><input type="number" min="0" step="any" data-pf="out" value="${esc(prices[id]?.out ?? '')}" aria-label="출력 단가"></div>`).join('') : '<p class="hint">API 방식으로 한 회의가 집계되면 여기에 AI별 입력칸이 나옵니다.</p>';
+}
+$('priceRows').addEventListener('input', (e) => {
+  const row = e.target.closest('[data-pid2]');
+  if (!row) return;
+  const prices = lsGet('usagePrices', {});
+  prices[row.dataset.pid2] = { ...(prices[row.dataset.pid2] || {}), [e.target.dataset.pf]: e.target.value };
+  lsSet('usagePrices', prices);
+  renderUsage();
+});
+$('priceUnit').value = lsGet('usageUnit', '$'); $('tokRatio').value = lsGet('usageRatio', 0.7);
+$('priceUnit').addEventListener('input', () => { lsSet('usageUnit', $('priceUnit').value); renderUsage(); });
+$('tokRatio').addEventListener('input', () => { lsSet('usageRatio', $('tokRatio').value); renderUsage(); });
+$('usageDays').addEventListener('change', async () => { await loadUsage(); renderPriceRows(); });
+$('usageBtn').addEventListener('click', async () => { $('usageDlg').showModal(); await loadUsage(); renderPriceRows(); });
+$('usageCsv').addEventListener('click', () => {
+  if (!usageData) return;
+  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [['일시', '회의', '방식', '호출', '참가', '상태'].map(q).join(',')].concat(usageData.meetings.map((m) => [m.startedAt, m.title, m.mode, m.calls, m.participants, m.status].map(q).join(',')));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+  a.download = '사용량.csv';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+
 // --- 결정 기록: 결론을 결정으로 남기고, 재검토 때 결과를 적고, 비슷한 안건에서 참고한다 ---
 let decisions = [], dueIds = new Set();
 const OUT = { '': '결과 미정', good: '잘 됨', mixed: '절반만 됨', bad: '잘 안 됨' };

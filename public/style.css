@@ -434,3 +434,18 @@ body.sg .side-tabs button[aria-selected="true"] { color: var(--accent); }
 .draft-note { width: 100%; box-sizing: border-box; font-size: 13px; padding: 5px 8px; margin: 2px 0 6px; }
 .draft-text { width: 100%; box-sizing: border-box; font: inherit; font-size: 13.5px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); resize: vertical; }
 .draft-warn { color: #b91c1c; margin: 6px 0; font-size: 13px; }
+
+.usage-dlg { width: min(860px, 94vw); }
+.usage-bar { display: flex; gap: 10px; align-items: center; margin: 8px 0; }
+.usage-bar select { width: auto; }
+.usage-bar button { width: auto; }
+.usage-body .cards { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.usage-body .card { flex: 1 1 130px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.usage-body .card b { display: block; font-size: 20px; }
+.usage-body .card small { color: var(--muted); }
+.usage-body table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 6px 0 12px; }
+.usage-body th, .usage-body td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: right; }
+.usage-body th:first-child, .usage-body td:first-child { text-align: left; }
+.usage-body .scroll { max-height: 260px; overflow: auto; }
+.price-rows .price-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; align-items: center; margin: 4px 0; font-size: 13px; }
+.price-rows input { width: 100%; box-sizing: border-box; font-size: 13px; padding: 3px 6px; }
