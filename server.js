@@ -19,12 +19,13 @@ const backup = require('./lib/backup');
 const setup = require('./lib/setup');
 const actions = require('./lib/actions');
 const decisions = require('./lib/decisions');
+const drafts = require('./lib/drafts');
 const { scanFolder, saveOutput, readFolderXlsx } = require('./lib/folder');
 const { ROLES, TEAMS, publicRoles } = require('./lib/roles');
 const { estimate } = require('./lib/estimate');
 const profile = require('./lib/profile');
 const crypto = require('crypto');
-const { redactRequest } = require('./lib/redact');
+const { redactRequest, createRedactor } = require('./lib/redact');
 const xlsxPick = require('./lib/xlsx_pick');
 const { FORMS } = require('./lib/forms_logistics');
 const { createMinutes, listMinutes, readMinutes } = require('./lib/minutes');
@@ -231,6 +232,32 @@ async function handleEstimate(req, res) {
   }));
 }
 const clampCalls = (v) => Math.min(MAX_CALLS_LIMIT, Math.max(10, Math.floor(Number(v)) || DEFAULT_MAX_CALLS));
+
+// 대상별 문서 초안: 결론(이미 가려진 글)과 종류만 받아 AI 호출 1회. 결론 밖의 숫자는 프로그램이 다시 찾아 알려 준다.
+let draftBusy = false;
+async function handleDraft(req, res) {
+  let b;
+  try { b = JSON.parse((await readBody(req, 100_000)) || '{}'); } catch { return sendJson(res, 400, { error: '잘못된 요청입니다' }); }
+  const kind = String(b.kind || '');
+  const conclusion = String(b.conclusion || '').trim().slice(0, 12000);
+  const id = String(b.provider || '');
+  const mode = MODES.includes(b.mode) ? b.mode : 'api';
+  if (!drafts.KINDS[kind]) return sendJson(res, 400, { error: '알 수 없는 문서 종류입니다' });
+  if (!conclusion) return sendJson(res, 400, { error: '바탕이 될 결론이 없습니다' });
+  if (!PROVIDERS[id] || !isConfigured(id, mode)) return sendJson(res, 400, { error: '이 AI 는 지금 쓸 수 없습니다. 연결 설정을 확인하세요' });
+  let note = String(b.note || '').slice(0, 300).trim();
+  if (note && b.redact?.enabled !== false) note = createRedactor(redactOptions(b.redact && typeof b.redact === 'object' ? b.redact : {})).text(note);
+  if (draftBusy) return sendJson(res, 429, { error: '다른 문서 초안을 만드는 중입니다. 끝난 뒤에 다시 눌러 주세요' });
+  draftBusy = true;
+  const ac = new AbortController();
+  res.on('close', () => ac.abort());
+  try {
+    const text = (await callProvider(id, { mode, model: b.model ? String(b.model).slice(0, 80) : undefined, system: '당신은 한국 기업의 업무 문서를 쓰는 전문가입니다. 주어진 회의 결론만을 근거로 쓰고, 없는 사실을 만들지 않습니다.', prompt: drafts.buildPrompt(kind, conclusion, note), signal: AbortSignal.any([ac.signal, AbortSignal.timeout(180000)]) })).trim();
+    return sendJson(res, 200, { kind, label: drafts.KINDS[kind].label, text, check: drafts.checkDraft(text, conclusion) });
+  } catch (e) {
+    return sendJson(res, 502, { error: setup.scrub(String(e.message || e).slice(0, 300)) });
+  } finally { draftBusy = false; }
+}
 
 // 연결 확인: 아주 짧은 요청 한 번(유료 API 는 아주 적은 비용). 키나 오류 문구에 키가 섞이면 지워서 돌려준다.
 let setupTesting = false;
@@ -446,6 +473,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { ok: true, apiConfigured: hasApiKey(String(b.provider)) });
       } catch (e) { return sendJson(res, 400, { error: setup.scrub(e.message || e) }); }
     }
+    if (req.method === 'POST' && url.pathname === '/api/draft') return await handleDraft(req, res);
     if (req.method === 'POST' && url.pathname === '/api/setup/test') return await handleSetupTest(req, res);
     if (req.method === 'GET' && url.pathname === '/api/decisions') return sendJson(res, 200, { items: decisions.load(minutesDir()), due: decisions.due(minutesDir()).map((x) => x.id) });
     if (req.method === 'POST' && url.pathname.startsWith('/api/decisions/')) {

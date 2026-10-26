@@ -642,7 +642,7 @@ function handle(ev, ctx) {
       add(head('', sg ? '최종 결단(決斷)' : '최종 결론', `${badge}${absent}<small>${sg ? '주재' : '사회자'}: ${esc(nameOf(ev.who))}${ev.consensus && !ev.consensus.reached && ev.consensus.reason ? ` · ${esc(ev.consensus.reason)}` : ''}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`, 'final');
       ctx.conclusion = ev.text;
       addSaveBar(ev.text);
-      if (!ev.local) addDecisionCard(ev.text, ctx);
+      if (!ev.local) { addDecisionCard(ev.text, ctx); addDraftBar(ev, ctx); }
       break;
     }
     case 'consensus': {
@@ -724,6 +724,38 @@ function handle(ev, ctx) {
 }
 
 // 결론을 폴더의 '결과물' 폴더에 파일로 저장 (새 파일로만, 덮어쓰지 않음)
+// 대상별 문서 초안: 결론을 상사 보고 / 임원 요약 / 거래처 안내문 / 현장 공지로 다시 쓴다(AI 호출 1회)
+const DRAFTS = [['boss', '상사 보고 1장'], ['exec', '임원 5줄 요약'], ['partner', '거래처 안내문'], ['field', '현장 공지']];
+function addDraftBar(ev, ctx) {
+  const host = feed.lastElementChild;
+  const el = document.createElement('div');
+  el.className = 'dec-nested draft-bar';
+  el.innerHTML = `<div><b>문서 초안</b> · 결론을 쓸 곳에 맞게 다시 써 줍니다 <small>AI 호출 1회 · 결론에 없는 사실은 [확인 필요]로 남깁니다</small></div><div class="dec-row">${DRAFTS.map(([k, l]) => `<button type="button" class="ghost draft-go" data-dk="${k}">${l}</button>`).join('')}</div><input type="text" class="draft-note" placeholder="추가 요청(선택): 예) 임원이 읽는 톤으로, 일정 강조" maxlength="300" aria-label="추가 요청"><div class="draft-out"></div>`;
+  const out = el.querySelector('.draft-out');
+  el.addEventListener('click', async (e) => {
+    const b = e.target.closest('.draft-go');
+    if (!b) return;
+    el.querySelectorAll('.draft-go').forEach((x) => { x.disabled = true; });
+    out.innerHTML = '<p class="hint">초안을 쓰는 중… (최대 1~2분)</p>';
+    try {
+      const r = await postJson('/api/draft', { kind: b.dataset.dk, conclusion: ev.text, provider: provOf(ev.who), model: ev.requested || '', mode, note: el.querySelector('.draft-note').value, redact: redactBody() });
+      const warn = r.check.missing.length ? `<p class="draft-warn">⚠ 초안에 결론에 없는 숫자가 있습니다: <b>${r.check.missing.map(esc).join(', ')}</b>. AI가 만들었을 수 있으니 확인하거나 지우세요.</p>` : r.check.numbersTotal ? '<p class="hint">초안의 숫자는 모두 결론에서 찾았습니다(해석이 맞는지는 확인하지 못합니다).</p>' : '';
+      out.innerHTML = `<div class="hint"><b>${esc(r.label)}</b> 초안 — 보내기 전에 사람이 읽고 고치세요${/\[(전화|이름|이메일|계좌|차량|주민번호)\d+\]/.test(r.text) ? ' (가려진 표시 [전화1] 등이 그대로 있으면 실제 값으로 바꾸세요)' : ''}</div>${warn}<textarea class="draft-text" rows="10" spellcheck="false" aria-label="${esc(r.label)} 초안"></textarea><div class="dec-row"><button type="button" class="ghost draft-copy">복사</button><span class="hint draft-msg" role="status"></span></div>`;
+      const ta = out.querySelector('.draft-text');
+      ta.value = r.text;
+      out.querySelector('.draft-copy').addEventListener('click', async () => {
+        const m = out.querySelector('.draft-msg');
+        try { await navigator.clipboard.writeText(ta.value); m.textContent = '복사했습니다'; } catch { ta.select(); m.textContent = '선택했습니다. Ctrl+C 로 복사하세요'; }
+      });
+      const save = document.createElement('div');
+      out.appendChild(save);
+      addSaveBar(() => ta.value, save, `${r.label}_${(ctx.title || '').slice(0, 20)}`);
+    } catch (err) { out.innerHTML = `<p class="hint err">${esc(err.message)}</p>`; }
+    el.querySelectorAll('.draft-go').forEach((x) => { x.disabled = false; });
+  });
+  host?.appendChild(el);
+}
+
 // 결론을 "결정"으로 기록: 제목과 재검토 시점은 사람이 정한다
 function addDecisionCard(text, ctx) {
   const el = document.createElement('div');
@@ -745,17 +777,17 @@ function addDecisionCard(text, ctx) {
   feed.lastElementChild?.appendChild(el);
 }
 
-function addSaveBar(text) {
+function addSaveBar(text, host, name) {
   const el = document.createElement('div');
   el.className = 'save-bar';
-  const base = (agenda || '회의결과').replace(/[\\/:*?"<>|\n]/g, ' ').slice(0, 30).trim() || '회의결과';
+  const base = (name || agenda || '회의결과').replace(/[\\/:*?"<>|\n]/g, ' ').slice(0, 30).trim() || '회의결과';
   el.innerHTML = `<span>결과물로 저장</span><input type="text" class="sv-name" value="${esc(base)}" aria-label="파일 이름"><select class="sv-fmt" aria-label="형식"><option value="md">.md</option><option value="docx">.docx (워드)</option><option value="xlsx">.xlsx (엑셀, 표만)</option><option value="pptx">.pptx (파워포인트)</option><option value="html">.html</option><option value="txt">.txt</option><option value="csv">.csv</option></select><button type="button" class="sv-go">저장</button><span class="save-msg" role="status"></span>`;
   const msg = el.querySelector('.save-msg');
   el.querySelector('.sv-go').addEventListener('click', async () => {
     const dir = folderRoot || $('folderPath').value.trim();
     if (!dir) { msg.className = 'save-msg err'; msg.textContent = '먼저 폴더에서 저장할 폴더를 지정하세요'; $('folderPanel').hidden = false; return; }
     try {
-      const r = await postJson('/api/folder/save', { path: dir, name: el.querySelector('.sv-name').value, format: el.querySelector('.sv-fmt').value, content: text });
+      const r = await postJson('/api/folder/save', { path: dir, name: el.querySelector('.sv-name').value, format: el.querySelector('.sv-fmt').value, content: typeof text === 'function' ? text() : text });
       msg.className = 'save-msg';
       msg.textContent = `저장했습니다: ${r.path}`;
     } catch (err) {
@@ -763,7 +795,7 @@ function addSaveBar(text) {
       msg.textContent = err.message;
     }
   });
-  feed.lastElementChild?.appendChild(el);
+  (host || feed.lastElementChild)?.appendChild(el);
 }
 
 // 회의 끝 알림: 다른 창에서 일하는 동안에도 알 수 있게 소리, 탭 제목 깜박임, (허락했다면) 브라우저 알림을 쓴다.
