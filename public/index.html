@@ -20,6 +20,7 @@
         <button type="button" role="tab" data-tab="people" aria-selected="true">참가자</button>
         <button type="button" role="tab" data-tab="meeting" aria-selected="false">회의</button>
         <button type="button" role="tab" data-tab="data" aria-selected="false">자료·보호</button>
+        <button type="button" role="tab" data-tab="todo" aria-selected="false">할 일<i id="todoCount" class="tab-count" hidden></i></button>
         <button type="button" role="tab" data-tab="conn" aria-selected="false">연결·백업<i id="connDot" class="tab-dot" hidden></i></button>
       </div>
       <section class="side-panel" data-panel="people" role="tabpanel">
@@ -110,6 +111,16 @@
         <p class="hint">찾지 못하는 것: 주소, 목록에 없는 이름, 이미지 속 글자. 중요한 자료는 미리보기로 확인하세요.</p>
       </details>
 
+      </section>
+      <section class="side-panel" data-panel="todo" role="tabpanel" hidden>
+        <h2>할 일 <small id="todoState"></small></h2>
+        <p class="hint">회의 결론의 <b>실행 계획</b>을 확인해 담아 두고 진행 상황을 기록합니다. 담당·기한은 AI의 제안이라 <b>담을 때 사람이 확인·수정</b>합니다. 이 목록은 회의록 폴더의 <b>실행항목.json</b> 에 저장되고 백업에도 포함됩니다.</p>
+        <label class="check"><input type="checkbox" id="carryActions" checked> <span>다음 회의에 미완료 할 일 올리기 <small>진행 중인 항목만 자료로 넣고, 결론에서 상태를 짚게 합니다</small></span></label>
+        <label class="field">보기
+          <select id="todoFilter"><option value="open">진행 중·보류</option><option value="all">전체(완료·취소 포함)</option></select>
+        </label>
+        <div id="todoList" class="todo-list"></div>
+        <p id="todoMsg" class="hint" role="status"></p>
       </section>
       <section class="side-panel" data-panel="conn" role="tabpanel" hidden>
       <details id="setupBox" class="side-box">

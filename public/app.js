@@ -678,6 +678,22 @@ function handle(ev, ctx) {
       pending['sage:sage']?.remove();
       break;
     }
+    case 'actions': {
+      const rows = ev.items.map((it, i) => `<div class="act-row" data-ai="${i}"><input type="checkbox" checked aria-label="담기"><input type="text" class="act-text" value="${esc(it.text)}" aria-label="할 일"><div class="act-meta"><input type="text" class="act-owner" value="${esc(it.owner)}" placeholder="담당(미정)" aria-label="담당"><input type="text" class="act-due" value="${esc(it.due)}" placeholder="기한(미정)" aria-label="기한"></div></div>`).join('');
+      const el = add(`<div class="msg-head"><span class="verdict yes">할 일</span>실행 계획 ${ev.items.length}개를 할 일 목록에 담을까요? <small>담당·기한은 AI의 제안입니다. 확인하고 고쳐서 담으세요</small></div><div class="msg-body">${rows}<p><button type="button" class="act-add">체크한 항목 담기</button> <span class="act-msg hint" role="status"></span></p></div>`, 'actions-card');
+      el.querySelector('.act-add').addEventListener('click', async (e) => {
+        const items = [...el.querySelectorAll('.act-row')].filter((r) => r.querySelector('input[type=checkbox]').checked).map((r) => ({ text: r.querySelector('.act-text').value, owner: r.querySelector('.act-owner').value, due: r.querySelector('.act-due').value }));
+        const msg = el.querySelector('.act-msg');
+        if (!items.length) { msg.textContent = '담을 항목을 체크하세요'; return; }
+        try {
+          const r = await postJson('/api/actions/add', { meeting: ctx.title, items });
+          e.target.disabled = true;
+          msg.textContent = `${r.added}개를 담았습니다${r.skipped ? ` (같은 내용이 이미 있어 ${r.skipped}개 건너뜀)` : ''}. 왼쪽 "할 일" 탭에서 관리하세요.`;
+          loadTodos();
+        } catch (err) { msg.textContent = err.message; }
+      });
+      break;
+    }
     case 'evidence': {
       const n = ev.numbers.counts, q = ev.quotes.counts;
       const part = (c) => `자료에서 확인 <b>${c.verified}</b> · 회의 발언에만 있음 <b>${c.meetingOnly}</b> · 어디에도 없음 <b>${c.missing}</b>`;
@@ -772,7 +788,7 @@ async function runMeeting(question) {
   add(esc(question) + (attachments.length ? `<div class="att-names">첨부: ${attachments.map((a) => esc(a.name)).join(', ')}</div>` : ''), 'user');
   setBusy(true);
   controller = new AbortController();
-  const ctx = { labels: {}, conclusion: null };
+  const ctx = { labels: {}, conclusion: null, title: question.replace(/^\[안건:\s*([^\]\n]+)\][\s\S]*/, '$1').split('\n')[0].slice(0, 60) };
   agenda = question.length > 70 ? question.slice(0, 70) + '…' : question;
   refreshStage();
   officeBegin();
@@ -788,6 +804,7 @@ async function runMeeting(question) {
         mode,
         persona: sg,
         premortem: $('premortem').checked,
+        carryActions: carryOn(),
         ...roundsBody(),
         moderator: $('moderator').value,
         maxCalls: Number($('maxCalls').value),
@@ -1170,6 +1187,57 @@ $('sideTabs').addEventListener('keydown', (e) => {
 });
 try { showSideTab(localStorage.getItem('sideTab') || 'people', false); } catch {}
 
+// --- 할 일: 결론의 실행 계획을 사람이 확정해 담고, 진행 상황을 기록하고, 다음 회의에 미완료 항목을 올린다 ---
+let todos = [];
+const carryOn = () => $('carryActions').checked;
+const openTodos = () => todos.filter((t) => t.status === 'open').length;
+function saveCarry() { try { localStorage.setItem('carryActions', carryOn() ? '1' : '0'); } catch {} }
+try { $('carryActions').checked = localStorage.getItem('carryActions') !== '0'; } catch {}
+$('carryActions').addEventListener('change', () => { saveCarry(); renderChips(); });
+function parseDue(str) {
+  const t = String(str || '').trim(), now = new Date(), y = now.getFullYear();
+  let m = t.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/) || t.match(/(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  m = t.match(/(?:^|\D)(\d{1,2})[/.](\d{1,2})(?!\d)/) || t.match(/(\d{1,2})월\s*(\d{1,2})일/);
+  return m ? new Date(y, Number(m[1]) - 1, Number(m[2])) : null;
+}
+const isOverdue = (t) => { if (t.status !== 'open') return false; const d = parseDue(t.due); const today = new Date(); today.setHours(0, 0, 0, 0); return Boolean(d) && d < today; };
+async function loadTodos() {
+  try { todos = (await (await fetch('/api/actions')).json()).items || []; } catch { return; }
+  renderTodos();
+}
+function renderTodos() {
+  const n = openTodos(), late = todos.filter(isOverdue).length;
+  $('todoCount').hidden = !n; $('todoCount').textContent = n;
+  $('todoState').textContent = todos.length ? `(진행 중 ${n}${late ? ` · 기한 지남 ${late}` : ''})` : '';
+  const all = $('todoFilter').value === 'all';
+  const list = todos.filter((t) => all || t.status === 'open' || t.status === 'hold').sort((a, b) => (a.status === 'open' ? 0 : 1) - (b.status === 'open' ? 0 : 1) || (parseDue(a.due)?.getTime() ?? 9e15) - (parseDue(b.due)?.getTime() ?? 9e15) || String(a.created).localeCompare(String(b.created)));
+  const ST = { open: '진행 중', hold: '보류', done: '완료', cancel: '취소' };
+  $('todoList').innerHTML = list.length ? list.map((t) => `<div class="todo-item ${t.status}" data-tid="${esc(t.id)}">
+    <div class="todo-top"><select data-f="status" aria-label="상태">${Object.entries(ST).map(([k, v]) => `<option value="${k}"${t.status === k ? ' selected' : ''}>${v}</option>`).join('')}</select><input type="text" class="todo-text" data-f="text" value="${esc(t.text)}" aria-label="할 일"><button type="button" class="ghost todo-del" data-del aria-label="삭제">×</button></div>
+    <div class="todo-row"><input type="text" data-f="owner" value="${esc(t.owner)}" placeholder="담당" aria-label="담당"><input type="text" data-f="due" value="${esc(t.due)}" placeholder="기한" aria-label="기한"></div>
+    <div class="todo-row"><input type="text" data-f="note" value="${esc(t.note)}" placeholder="진행 메모" aria-label="진행 메모"></div>
+    <small>${isOverdue(t) ? '<span class="overdue">기한 지남</span> · ' : ''}${esc(t.meeting || '')}${t.metric ? ` · 확인: ${esc(t.metric)}` : ''}</small></div>`).join('') : `<p class="hint">${todos.length ? '진행 중인 할 일이 없습니다.' : '아직 담은 할 일이 없습니다. 회의 결론 아래의 "할 일" 카드에서 담을 수 있습니다.'}</p>`;
+  renderChips();
+}
+$('todoFilter').addEventListener('change', renderTodos);
+$('todoList').addEventListener('change', async (e) => {
+  const row = e.target.closest('[data-tid]'), f = e.target.dataset.f;
+  if (!row || !f) return;
+  try { await postJson('/api/actions/update', { id: row.dataset.tid, patch: { [f]: e.target.value } }); $('todoMsg').textContent = ''; }
+  catch (err) { $('todoMsg').textContent = err.message; }
+  loadTodos();
+});
+$('todoList').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-del]');
+  if (!b) return;
+  const row = b.closest('[data-tid]');
+  if (!confirm('이 할 일을 지울까요?')) return;
+  try { await postJson('/api/actions/delete', { id: row.dataset.tid }); } catch (err) { $('todoMsg').textContent = err.message; }
+  loadTodos();
+});
+loadTodos();
+
 // --- 연결 설정: 키 저장, 연결 확인, 저장 폴더 쓰기 점검 ---
 let setupInfo = null;
 async function loadSetup() {
@@ -1242,7 +1310,8 @@ $('backupFile').addEventListener('change', async () => {
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
     const prof = { restored: '회사 정보를 가져왔습니다', kept: '회사 정보는 이미 있어 덮어쓰지 않았습니다(백업 파일 안에 남아 있습니다)', same: '회사 정보는 같습니다', rejected: '회사 정보를 가져오지 못했습니다', none: '' }[d.profile] || '';
-    msg.textContent = `회의록 ${d.added}건을 가져왔습니다${d.existing ? ` (이미 있어 건너뜀 ${d.existing}건)` : ''}${d.rejected ? ` · 읽지 못한 파일 ${d.rejected}건` : ''}. ${prof}`;
+    msg.textContent = `회의록 ${d.added}건${d.actions ? `, 할 일 ${d.actions}건` : ''}을 가져왔습니다${d.existing ? ` (이미 있어 건너뜀 ${d.existing}건)` : ''}${d.rejected ? ` · 읽지 못한 파일 ${d.rejected}건` : ''}. ${prof}`;
+    if (d.actions) loadTodos();
     if (d.profile === 'restored') { const p = await (await fetch('/api/profile')).json(); $('profileText').value = p.text || ''; profileState(); }
   } catch (err) {
     msg.textContent = `불러오지 못했습니다: ${err.message}`;
@@ -1326,8 +1395,10 @@ $('redactPreviewBtn').addEventListener('click', async () => {
 let pinned = []; // { id, title, question, conclusion }
 function renderChips() {
   const box = $('ctxChips');
-  box.hidden = !pinned.length;
-  box.innerHTML = pinned.map((p, i) => `<span class="ctx-chip" title="${esc(p.question.slice(0, 200))}">이어 가는 회의: <b>${esc(p.title)}</b><button type="button" data-unpin="${i}" aria-label="${esc(p.title)} 연결 해제">×</button></span>`).join('');
+  const carry = carryOn() && openTodos() > 0;
+  box.hidden = !pinned.length && !carry;
+  box.innerHTML = (carry ? `<span class="ctx-chip" title="할 일 탭에서 끌 수 있습니다">미완료 할 일 <b>${openTodos()}개</b> 포함<button type="button" data-uncarry aria-label="미완료 할 일 포함 끄기">×</button></span>` : '') + pinned.map((p, i) => `<span class="ctx-chip" title="${esc(p.question.slice(0, 200))}">이어 가는 회의: <b>${esc(p.title)}</b><button type="button" data-unpin="${i}" aria-label="${esc(p.title)} 연결 해제">×</button></span>`).join('');
+  box.querySelector('[data-uncarry]')?.addEventListener('click', () => { $('carryActions').checked = false; saveCarry(); renderChips(); });
   box.querySelectorAll('[data-unpin]').forEach((b) => b.addEventListener('click', () => { pinned.splice(Number(b.dataset.unpin), 1); renderChips(); scheduleEstimate(); }));
   scheduleEstimate();
 }
