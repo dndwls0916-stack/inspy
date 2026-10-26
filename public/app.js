@@ -678,6 +678,15 @@ function handle(ev, ctx) {
       pending['sage:sage']?.remove();
       break;
     }
+    case 'evidence': {
+      const n = ev.numbers.counts, q = ev.quotes.counts;
+      const part = (c) => `자료에서 확인 <b>${c.verified}</b> · 회의 발언에만 있음 <b>${c.meetingOnly}</b> · 어디에도 없음 <b>${c.missing}</b>`;
+      const li = (cls, mark, label, x) => `<li class="${cls}"><span class="ev-mark">${mark}</span> ${label}: <b>${esc(x.text ?? x)}</b>${x.context ? ` <small>…${esc(x.context)}…</small>` : ''}</li>`;
+      const items = ev.numbers.missing.map((x) => li('ev-no', '⚠', '어디에도 없음', x)).join('') + ev.quotes.missing.map((x) => li('ev-no', '⚠', '어디에도 없는 인용', `"${x}"`)).join('') + ev.numbers.meetingOnly.map((x) => li('ev-meet', '△', '회의 발언에만 있음', x)).join('') + ev.quotes.meetingOnly.map((x) => li('ev-meet', '△', '회의 발언에서만 나온 인용', `"${x}"`)).join('');
+      const bad = n.missing + q.missing;
+      add(`<div class="msg-head"><span class="verdict ${bad ? 'no' : 'yes'}">근거 대조</span>결론의 숫자·인용을 자료와 비교 <small>프로그램이 글자로 비교한 결과</small></div><div class="msg-body"><p>숫자 ${ev.numbers.total}개: ${part(n)}</p>${ev.quotes.total ? `<p>따옴표 인용 ${ev.quotes.total}개: ${part(q)}</p>` : ''}${ev.hasSources ? '' : '<p><i>첨부 자료가 없어 질문 속 숫자하고만 비교했습니다.</i></p>'}${items ? `<ul class="ev-list">${items}</ul>` : ''}<p><small>자료에 있는 숫자라도 올바르게 해석했는지는 확인하지 못합니다. AI가 계산해서 만든 숫자는 "어디에도 없음"으로 나올 수 있으니, 보고에 쓰기 전에 직접 확인하세요.</small></p></div>`, 'evidence-card ' + (bad ? 'open' : 'reached'));
+      break;
+    }
     case 'premortem': {
       pending['premortem']?.remove();
       add(`<div class="msg-head"><span class="verdict no">사전 부검</span>이 결정이 실패한다면 <small>${esc(ev.label)} · AI 의 가정이며 사실 확인이 끝난 내용이 아닙니다</small></div><div class="msg-body">${md(ev.text)}</div>`, 'premortem-card');
@@ -950,7 +959,9 @@ fetch('/api/config').then((r) => r.json()).then((cfg) => {
   applyTheme();
   syncSg();
   loadSetup().then(() => {
+    $('connDot').hidden = !cfg.setupNeeded;
     if (cfg.setupNeeded) {
+      showSideTab('conn', false);
       $('setupBox').open = true;
       add('<div>사용 가능한 AI가 없습니다. 왼쪽 <b>연결 설정</b>에 API 키를 붙여 넣거나, claude / codex / gemini CLI를 설치·로그인하세요.</div>', 'err');
     }
@@ -1141,6 +1152,24 @@ function loadForms(list) {
   $('agendaBox').hidden = !cfgForms.length;
 }
 
+// --- 왼쪽 메뉴 탭: 참가자 / 회의 / 자료·보호 / 연결·백업 ---
+function showSideTab(name, remember = true) {
+  const tabs = [...document.querySelectorAll('#sideTabs [data-tab]')];
+  if (!tabs.some((t) => t.dataset.tab === name)) name = 'people';
+  tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+  document.querySelectorAll('.side-panel').forEach((p) => { p.hidden = p.dataset.panel !== name; });
+  if (remember) try { localStorage.setItem('sideTab', name); } catch {}
+}
+$('sideTabs').addEventListener('click', (e) => { const t = e.target.closest('[data-tab]'); if (t) showSideTab(t.dataset.tab); });
+$('sideTabs').addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+  const tabs = [...document.querySelectorAll('#sideTabs [data-tab]')];
+  const i = tabs.findIndex((t) => t.getAttribute('aria-selected') === 'true');
+  const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+  showSideTab(n.dataset.tab); n.focus();
+});
+try { showSideTab(localStorage.getItem('sideTab') || 'people', false); } catch {}
+
 // --- 연결 설정: 키 저장, 연결 확인, 저장 폴더 쓰기 점검 ---
 let setupInfo = null;
 async function loadSetup() {
@@ -1151,6 +1180,7 @@ function renderSetup() {
   const d = setupInfo;
   if (!d) return;
   const usable = d.providers.filter((p) => (p.apiConfigured && !d.mock) || p.cliAvailable).length;
+  if (!d.mock) $('connDot').hidden = usable > 0;
   $('setupState').textContent = d.mock ? '(데모)' : usable ? `(${usable}개 사용 가능)` : '(필요)';
   const row = (p) => `<div class="setup-row" data-sp="${esc(p.id)}">
     <div class="setup-head"><b>${esc(p.label)}</b> <small>${esc(p.vendor || '')}</small></div>
