@@ -8,18 +8,14 @@ let mode = 'api';
 const ok = (p) => (!p.cliSupported ? p.apiConfigured : mode === 'cli' ? p.cliAvailable : mode === 'mixed' ? p.apiConfigured || p.cliAvailable : p.apiConfigured);
 let history = []; // 이전 회의의 질문/결론 (후속 질문에 맥락으로 전달)
 let controller = null;
-let cfgSage = null;
 let liveModels = {}; // 서비스에서 가져온 모델 목록 { gpt: {ids, pick}, ... }
-let sgWanted = false; // 삼국지 모드 선택 (기본은 꺼짐 — 직업 역할로 회의)
-try { sgWanted = localStorage.getItem('sg') === '1'; } catch {}
-let sg = sgWanted; // 실제 적용: 삼국지 모드는 AI 한 종류에 한 자리씩(최대 3명)일 때만 가능
 // 참가자(자리) id: 'gpt' 또는 같은 AI 를 더 앉힌 'gpt-2'. 앞부분이 AI 종류.
 const provOf = (id) => String(id).split('-')[0];
 const byId = (id) => providers.find((p) => p.id === provOf(id));
 let seats = []; // [{ uid, provider }] 회의에 앉을 자리들 (순서 = 발언/표시 순서)
 const seatNo = (uid) => { const same = seats.filter((x) => x.provider === provOf(uid)); return same.length > 1 ? ` ${same.findIndex((x) => x.uid === uid) + 1}` : ''; };
-const nameOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.name : (byId(id)?.label || id) + seatNo(id));
-const colorOf = (id) => (sg && byId(id)?.persona ? byId(id).persona.color : COLORS[provOf(id)] || byId(id)?.color || 'var(--accent)');
+const nameOf = (id) => (byId(id)?.label || id) + seatNo(id);
+const colorOf = (id) => COLORS[provOf(id)] || byId(id)?.color || 'var(--accent)';
 
 // --- 아주 작은 마크다운 렌더러 (HTML 이스케이프 후 변환) ---
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -349,7 +345,6 @@ $('team').addEventListener('change', () => {
   $('team').value = '';
   { const t = cfgTeams.find((x) => x.id === v); if (t?.form && $('agendaForm')) { $('agendaForm').value = t.form; renderAgenda(true); } }
   renderParticipants(true); // 방금 정한 역할을 이전 화면 값으로 덮어쓰지 않는다
-  syncSg();
 });
 
 // --- AI 배정: 팀을 고를 때(또는 "다시 배정") 자리마다 어떤 AI 를 앉힐지. 전부 한 AI / 반반 / 돌아가며 ---
@@ -406,7 +401,6 @@ function reassignSeats() {
   for (const k of Object.keys(partState)) delete partState[k];
   Object.assign(partState, next);
   renderParticipants(true);
-  syncSg();
 }
 // 자리 하나의 AI 를 바꾼다(역할·생각 깊이는 유지, 모델은 AI 가 달라지므로 자동으로).
 function changeProvider(uid, provider) {
@@ -420,7 +414,6 @@ function changeProvider(uid, provider) {
   delete partState[uid];
   partState[nu] = { role: st.role, effort: st.effort, model: '', custom: '' };
   renderParticipants(true);
-  syncSg();
 }
 
 const MAX_SEATS = 8;
@@ -447,7 +440,7 @@ function renderParticipants(skipSave = false) {
     const card = document.createElement('div');
     card.className = 'p-card' + (ok(p) ? '' : ' off');
     card.innerHTML = `
-      <div class="p-head"><span class="dot" style="background:${colorOf(seat.uid)}"></span>${esc(nameOf(seat.uid))}<span class="vendor">${sg ? p.label + ' · ' : ''}${p.vendor}</span>
+      <div class="p-head"><span class="dot" style="background:${colorOf(seat.uid)}"></span>${esc(nameOf(seat.uid))}<span class="vendor">${p.vendor}</span>
         <select class="seat-ai" data-ai="${seat.uid}" aria-label="${esc(nameOf(seat.uid))} 의 AI" title="이 자리의 AI 바꾸기">${providers.map((q) => `<option value="${q.id}" ${q.id === seat.provider ? 'selected' : ''}>${esc(q.label)}${ok(q) ? '' : ' (설정 필요)'}</option>`).join('')}</select>
         ${seats.length > 1 ? `<button type="button" class="seat-rm" data-rm="${seat.uid}" aria-label="${esc(nameOf(seat.uid))} 빼기" title="이 참가자 빼기">×</button>` : ''}</div>
       ${modelSelectHtml(seat, p)}
@@ -482,15 +475,12 @@ $('addSeatBtn').addEventListener('click', () => {
   const provider = $('addSeatSel').value;
   seats.push({ uid: newUid(provider), provider });
   renderParticipants();
-  syncSg();
 });
 const selected = () => seats.filter((x) => ok(byId(x.uid))).map((x) => ({ ...byId(x.uid), id: x.uid, provider: x.provider, label: (byId(x.uid)?.label || x.provider) + seatNo(x.uid) }));
 function renderModerator() {
   const sel = $('moderator'), prev = sel.value;
-  sel.innerHTML = selected().map((p) => `<option value="${p.id}">${esc(nameOf(p.id))}${sg ? ` (${p.label})` : ''}</option>`).join('');
+  sel.innerHTML = selected().map((p) => `<option value="${p.id}">${esc(nameOf(p.id))}</option>`).join('');
   if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
-  else if (sg && [...sel.options].some((o) => o.value === 'claude')) sel.value = 'claude'; // 맏형 유비가 주재
-  refreshStage();
 }
 
 // --- 피드 ---
@@ -519,56 +509,10 @@ setInterval(() => {
     el.classList.toggle('slow', sec >= 60);
   });
 }, 1000);
-const head = (id, label, extra = '') => {
-  const p = byId(id);
-  const who = sg && p?.persona ? `${esc(p.persona.name)} <small>${esc(p.label)}</small>` : esc(label);
-  const mark = sg && p?.persona ? `<span class="mini-seal" style="--c:${p.persona.color}">${p.persona.hanja}</span>`
-    : sg && !id ? '<span class="mini-seal" style="--c:var(--accent)">決</span>'
-    : `<span class="dot" style="background:${colorOf(id)}"></span>`;
-  return `<div class="msg-head">${mark}${who} ${extra}</div>`;
-};
+const head = (id, label, extra = '') => `<div class="msg-head"><span class="dot" style="background:${colorOf(id)}"></span>${esc(label)} ${extra}</div>`;
 
-// --- 군의 자리(원탁 + 병풍 장면) ---
-const STATE = { idle: '대기', thinking: '숙고 중…', speaking: '결단 중…', done: '발언 완료', error: '낙마(오류)' };
-const POS = { claude: 'top', gpt: 'left', gemini: 'right' };
 let agenda = '의제를 올려 주세요';
 let cfgRoles = [], cfgTeams = [];
-const seatHtml = (id, p, extra = '') => `<div class="seat idle ${extra}" data-seat="${id}" style="--c:${p.color}">
-  <div class="seal">${p.hanja}</div>
-  <div class="seat-name">${esc(p.name)}${byId(id) ? ` <small>${esc(byId(id).label)}</small>` : ''}</div>
-  <div class="seat-title">${esc(p.title)}</div><div class="seat-state">${STATE.idle}</div></div>`;
-function renderStage(ids) {
-  const stage = $('stage');
-  // 군의 장면은 캐릭터가 있는 기본 3 AI 만 앉힐 수 있다(다른 AI 가 있으면 보여 주지 않는다)
-  stage.hidden = !sg || !ids.length || ids.some((id) => !byId(id)?.persona);
-  if (stage.hidden) return;
-  stage.innerHTML = `<div class="scene">
-    <div class="screen" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-    <div class="table" aria-hidden="true"><div class="agenda"><small>議 · 의제</small><span id="agenda">${esc(agenda)}</span></div></div>
-    ${ids.map((id) => seatHtml(id, byId(id).persona, 'pos-' + (POS[id] || 'left'))).join('')}
-    ${cfgSage ? seatHtml('sage', cfgSage, 'sage') : ''}
-    <div class="caption" id="caption" hidden></div></div>`;
-}
-function seat(id, state, label) {
-  const el = document.querySelector(`[data-seat="${id}"]`);
-  if (!el) return;
-  el.classList.remove('idle', 'thinking', 'speaking', 'done', 'error');
-  el.classList.add(state);
-  el.querySelector('.seat-state').textContent = label ? label : id === 'sage' && state === 'thinking' ? '책략 구상 중…' : id === 'sage' && state === 'done' ? '한마디 올림' : STATE[state];
-}
-// 자막: 지금 발언의 첫 문장
-function caption(id, text) {
-  const el = $('caption');
-  if (!el) return;
-  const p = id === 'sage' ? cfgSage : byId(id)?.persona;
-  const plain = text.replace(/[#*`>\-]/g, ' ').replace(/\s+/g, ' ').trim();
-  const short = plain.length > 90 ? plain.slice(0, 90) + '…' : plain;
-  el.hidden = !short;
-  el.style.setProperty('--c', p?.color || 'var(--accent)');
-  el.innerHTML = `<b>${esc(p?.name || '')}</b> ${esc(short)}`;
-}
-const ORDER = ['claude', 'gpt', 'gemini']; // 유비(맏형) · 관우 · 장비
-const refreshStage = () => renderStage(selected().map((p) => p.id).sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)));
 const pending = {}; // key -> element
 
 function handle(ev, ctx) {
@@ -577,30 +521,21 @@ function handle(ev, ctx) {
   switch (ev.type) {
     case 'start':
       ctx.labels = Object.fromEntries(ev.participants.map((p) => [p.id, p.label]));
-      for (const p of ev.participants) {
-        const small = document.querySelector(`[data-seat="${p.id}"] .seat-name small`);
-        if (small) small.textContent = `${p.label} · ${p.via.toUpperCase()}`;
-      }
       break;
     case 'round': {
       const el = document.createElement('div');
       el.className = 'round';
       const total = ev.consensus ? `합의될 때까지 · 최대 ${ev.total}` : `총 ${ev.total}`;
-      el.textContent = ev.unlimited
-        ? (sg ? `── 제${ev.round}차 군의(軍議) · 결단이 날 때까지 ──` : `── ${ev.round}라운드 · 합의될 때까지 ──`)
-        : sg ? `── 제${ev.round}차 군의(軍議) · ${total}차 ──` : `── ${ev.round}라운드 / ${total}라운드 ──`;
-      if (sg && ev.round > 1) document.querySelectorAll('.seat:not(.sage)').forEach((e) => seat(e.dataset.seat, 'idle'));
+      el.textContent = ev.unlimited ? `── ${ev.round}라운드 · 합의될 때까지 ──` : `── ${ev.round}라운드 / ${total}라운드 ──`;
       feed.appendChild(el);
       break;
     }
     case 'thinking': {
       if (ev.round === 'judge') {
-        seat(ev.who, 'speaking', '판정 중…');
         pending[`judge:${ev.who}`] = add(head(ev.who, ctx.labels[ev.who], '<small>합의 여부 판정 중</small>'), 'pending ' + provOf(ev.who));
         break;
       }
       if (ev.round === 'ratify') {
-        seat(ev.who, 'speaking', '확인 중…');
         pending[`ratify:${ev.who}`] = add(head(ev.who, ctx.labels[ev.who], '<small>최종안 확인 중</small>'), 'pending ' + provOf(ev.who));
         break;
       }
@@ -608,19 +543,11 @@ function handle(ev, ctx) {
         pending['premortem'] = add(head(ev.who, ctx.labels[ev.who], '<small>사전 부검 작성 중</small>'), 'pending ' + provOf(ev.who));
         break;
       }
-      if (ev.who === 'sage') {
-        seat('sage', 'thinking');
-        pending['sage:sage'] = add(`<div class="msg-head"><span class="mini-seal" style="--c:${cfgSage.color}">${cfgSage.hanja}</span>${esc(cfgSage.name)} <small>책략 구상 중</small></div>`, 'pending sage-card');
-        break;
-      }
       const label = ctx.labels[ev.who];
-      seat(ev.who, ev.round === 'final' ? 'speaking' : 'thinking');
       pending[key(ev.round, ev.who)] = add(head(ev.who, label, ev.round === 'final' ? '<small>결론 정리 중</small>' : '<small>생각 중</small>'), 'pending ' + provOf(ev.who));
       break;
     }
     case 'turn': {
-      seat(ev.who, 'done');
-      caption(ev.who, ev.text);
       const el = pending[key(ev.round, ev.who)] || add('', provOf(ev.who));
       el.className = 'msg ' + provOf(ev.who);
       el.style.borderLeftColor = colorOf(ev.who); // 기본 3 AI 외의 AI 도 색으로 구분
@@ -628,7 +555,6 @@ function handle(ev, ctx) {
       break;
     }
     case 'turn_error': {
-      seat(ev.who, 'error');
       const el = pending[key(ev.round, ev.who)] || add('', '');
       el.className = 'msg err';
       el.innerHTML = head(ev.who, ev.label, `${roleBadge(ev)}<small>오류</small>`) + `<div>${esc(ev.error)}</div>`;
@@ -636,10 +562,9 @@ function handle(ev, ctx) {
     }
     case 'final': {
       pending[key('final', ev.who)]?.remove();
-      seat(ev.who, 'done');
       const badge = ev.consensus ? `<span class="verdict ${ev.consensus.reached ? 'yes' : 'no'}" ${ev.consensus.partial ? `title="호출에 실패해 입장을 확인하지 못한 참가자: ${esc(ev.consensus.missing.join(', '))}"` : ''}>${ev.consensus.reached ? `${ev.consensus.round}라운드 ${ev.consensus.partial ? '응답자 합의' : '합의'}` : '합의 못함'}</span>` : '';
       const absent = ev.missing?.length ? `<span class="verdict no" title="호출에 실패해 입장을 확인하지 못했습니다">불참: ${esc(ev.missing.join(', '))}</span>` : '';
-      add(head('', sg ? '최종 결단(決斷)' : '최종 결론', `${badge}${absent}<small>${sg ? '주재' : '사회자'}: ${esc(nameOf(ev.who))}${ev.consensus && !ev.consensus.reached && ev.consensus.reason ? ` · ${esc(ev.consensus.reason)}` : ''}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`, 'final');
+      add(head('', '최종 결론', `${badge}${absent}<small>사회자: ${esc(nameOf(ev.who))}${ev.consensus && !ev.consensus.reached && ev.consensus.reason ? ` · ${esc(ev.consensus.reason)}` : ''}</small>`) + `<div class="msg-body">${md(ev.text)}</div>`, 'final');
       ctx.conclusion = ev.text;
       addSaveBar(ev.text);
       if (!ev.local) { addDecisionCard(ev.text, ctx); addDraftBar(ev, ctx); }
@@ -647,7 +572,6 @@ function handle(ev, ctx) {
     }
     case 'consensus': {
       pending[`judge:${ev.who}`]?.remove();
-      seat(ev.who, 'done');
       const items = (ev.disagreements || []).map((d) => `<li>${esc(d)}</li>`).join('');
       add(`<div class="msg-head"><span class="verdict ${ev.reached ? 'yes' : 'no'}">${ev.pendingRatify ? '합의 후보' : ev.reached ? '합의' : '쟁점 남음'}</span>${sg ? '군의 판정' : '합의 판정'} <small>${esc(ev.round)}라운드 · ${esc(nameOf(ev.who))}</small></div>` +
         `<div class="msg-body"><p>${esc(ev.summary || '')}</p>${items ? `<p><b>남은 쟁점</b></p><ul>${items}</ul>` : ''}${ev.stalled ? '<p><i>지난 라운드와 입장이 거의 그대로입니다.</i></p>' : ''}${ev.contradiction ? '<p><i>판정이 합의라고 했지만 남은 쟁점이 있어 합의로 인정하지 않았습니다.</i></p>' : ''}${ev.pendingRatify ? '<p><i>참가자별 확인 투표로 최종 결정합니다.</i></p>' : ''}</div>`, 'consensus-card ' + (ev.reached ? 'reached' : 'open'));
@@ -655,7 +579,6 @@ function handle(ev, ctx) {
     }
     case 'ratify': {
       Object.keys(pending).filter((k) => k.startsWith('ratify:')).forEach((k) => { pending[k].remove(); delete pending[k]; });
-      for (const v of ev.votes) seat(v.who, 'done');
       const VOTE = { agree: ['동의', 'yes'], conditional: ['조건부', 'cond'], disagree: ['반대', 'no'], unknown: ['확인 못함', 'unk'] };
       const rows = ev.votes.map((v) => {
         const [txt, cls] = VOTE[v.vote] || VOTE.unknown;
@@ -664,44 +587,6 @@ function handle(ev, ctx) {
       }).join('');
       add(`<div class="msg-head"><span class="verdict ${ev.reached ? 'yes' : 'no'}">${ev.reached ? (ev.missing?.length ? '응답자 전원 동의' : '전원 동의') : '합의 보류'}</span>최종안 확인 <small>${esc(ev.round)}라운드 · 서로의 답을 보지 않고 각자 투표</small></div>` +
         `<div class="msg-body"><p>${esc(ev.summary || '')}</p><ul class="votes">${rows}</ul>${ev.reached ? '' : '<p><i>동의하지 않은 쟁점을 안고 토론을 이어갑니다.</i></p>'}${ev.missing?.length ? `<p><i>호출에 실패한 ${esc(ev.missing.join(', '))} 의 입장은 확인되지 않았습니다.</i></p>` : ''}</div>`, 'consensus-card ' + (ev.reached ? 'reached' : 'open'));
-      break;
-    }
-    case 'sage': {
-      seat('sage', 'done');
-      caption('sage', ev.text.replace(/\*\*[^*]+\*\*/g, ''));
-      const el = pending['sage:sage'] || add('', '');
-      el.className = 'msg sage-card';
-      el.innerHTML = `<div class="msg-head"><span class="mini-seal" style="--c:${cfgSage.color}">${cfgSage.hanja}</span>${esc(cfgSage.name)}의 한마디 <small>${esc(ev.label)}가 대신 올림</small></div><div class="msg-body">${md(ev.text)}</div>`;
-      break;
-    }
-    case 'sage_error': {
-      seat('sage', 'error');
-      pending['sage:sage']?.remove();
-      break;
-    }
-    case 'actions': {
-      const rows = ev.items.map((it, i) => `<div class="act-row" data-ai="${i}"><input type="checkbox" checked aria-label="담기"><input type="text" class="act-text" value="${esc(it.text)}" aria-label="할 일"><div class="act-meta"><input type="text" class="act-owner" value="${esc(it.owner)}" placeholder="담당(미정)" aria-label="담당"><input type="text" class="act-due" value="${esc(it.due)}" placeholder="기한(미정)" aria-label="기한"></div></div>`).join('');
-      const el = add(`<div class="msg-head"><span class="verdict yes">할 일</span>실행 계획 ${ev.items.length}개를 할 일 목록에 담을까요? <small>담당·기한은 AI의 제안입니다. 확인하고 고쳐서 담으세요</small></div><div class="msg-body">${rows}<p><button type="button" class="act-add">체크한 항목 담기</button> <span class="act-msg hint" role="status"></span></p></div>`, 'actions-card');
-      el.querySelector('.act-add').addEventListener('click', async (e) => {
-        const items = [...el.querySelectorAll('.act-row')].filter((r) => r.querySelector('input[type=checkbox]').checked).map((r) => ({ text: r.querySelector('.act-text').value, owner: r.querySelector('.act-owner').value, due: r.querySelector('.act-due').value }));
-        const msg = el.querySelector('.act-msg');
-        if (!items.length) { msg.textContent = '담을 항목을 체크하세요'; return; }
-        try {
-          const r = await postJson('/api/actions/add', { meeting: ctx.title, items });
-          e.target.disabled = true;
-          msg.textContent = `${r.added}개를 담았습니다${r.skipped ? ` (같은 내용이 이미 있어 ${r.skipped}개 건너뜀)` : ''}. 왼쪽 "할 일" 탭에서 관리하세요.`;
-          loadTodos();
-        } catch (err) { msg.textContent = err.message; }
-      });
-      break;
-    }
-    case 'evidence': {
-      const n = ev.numbers.counts, q = ev.quotes.counts;
-      const part = (c) => `자료에서 확인 <b>${c.verified}</b> · 회의 발언에만 있음 <b>${c.meetingOnly}</b> · 어디에도 없음 <b>${c.missing}</b>`;
-      const li = (cls, mark, label, x) => `<li class="${cls}"><span class="ev-mark">${mark}</span> ${label}: <b>${esc(x.text ?? x)}</b>${x.context ? ` <small>…${esc(x.context)}…</small>` : ''}</li>`;
-      const items = ev.numbers.missing.map((x) => li('ev-no', '⚠', '어디에도 없음', x)).join('') + ev.quotes.missing.map((x) => li('ev-no', '⚠', '어디에도 없는 인용', `"${x}"`)).join('') + ev.numbers.meetingOnly.map((x) => li('ev-meet', '△', '회의 발언에만 있음', x)).join('') + ev.quotes.meetingOnly.map((x) => li('ev-meet', '△', '회의 발언에서만 나온 인용', `"${x}"`)).join('');
-      const bad = n.missing + q.missing;
-      add(`<div class="msg-head"><span class="verdict ${bad ? 'no' : 'yes'}">근거 대조</span>결론의 숫자·인용을 자료와 비교 <small>프로그램이 글자로 비교한 결과</small></div><div class="msg-body"><p>숫자 ${ev.numbers.total}개: ${part(n)}</p>${ev.quotes.total ? `<p>따옴표 인용 ${ev.quotes.total}개: ${part(q)}</p>` : ''}${ev.hasSources ? '' : '<p><i>첨부 자료가 없어 질문 속 숫자하고만 비교했습니다.</i></p>'}${items ? `<ul class="ev-list">${items}</ul>` : ''}<p><small>자료에 있는 숫자라도 올바르게 해석했는지는 확인하지 못합니다. AI가 계산해서 만든 숫자는 "어디에도 없음"으로 나올 수 있으니, 보고에 쓰기 전에 직접 확인하세요.</small></p></div>`, 'evidence-card ' + (bad ? 'open' : 'reached'));
       break;
     }
     case 'premortem': {
@@ -849,7 +734,6 @@ async function runMeeting(question, prec = []) {
   controller = new AbortController();
   const ctx = { labels: {}, conclusion: null, question: question.slice(0, 4000), title: question.replace(/^\[안건:\s*([^\]\n]+)\][\s\S]*/, '$1').split('\n')[0].slice(0, 60) };
   agenda = question.length > 70 ? question.slice(0, 70) + '…' : question;
-  refreshStage();
   officeBegin();
   try {
     const res = await fetch('/api/council', {
@@ -861,7 +745,6 @@ async function runMeeting(question, prec = []) {
         attachments: attachments.map(({ name, text }) => ({ name, text })),
         participants: chosen.map((p) => ({ id: p.id, model: modelValue(p.id), role: roleOf(p.id), effort: effortOf(p.id) })),
         mode,
-        persona: sg,
         premortem: $('premortem').checked,
         carryActions: carryOn(),
         precedents: prec,
@@ -965,35 +848,14 @@ $('reset').addEventListener('click', () => {
   pinned = [];
   renderChips();
   agenda = '의제를 올려 주세요';
-  refreshStage();
   feed.innerHTML = '<div class="empty">새 회의를 시작합니다. 질문을 입력하세요.</div>';
   officeEnd(false, true);
 });
 
 function applyTheme() {
-  document.body.classList.toggle('sg', sg);
   refreshOffice();
-  $('sg').checked = sgWanted;
-  document.title = sg ? '桃園 · AI 군의' : 'AI 회의실';
-  $('title').textContent = sg ? 'AI 도원결의' : 'AI 회의실';
-  $('subtitle').textContent = sg ? '유비 · 관우 · 장비가 군의(軍議)를 열어 결단을 내립니다.' : 'GPT · Gemini · Claude가 함께 토론하고 결론을 정리합니다.';
   if (providers.length) { $('moderator').value = ''; renderParticipants(); }
 }
-// 삼국지 모드는 유비·관우·장비(AI 종류별 한 자리)만 있어서, 같은 AI 를 더 앉히면 쓸 수 없다.
-const sgAllowed = () => seats.every((x) => x.uid === x.provider && byId(x.uid)?.persona);
-function syncSg() {
-  const allowed = sgAllowed();
-  $('sg').disabled = !allowed;
-  $('sg').closest('label').title = allowed ? '' : '같은 AI 를 여러 자리에 앉히면 삼국지 모드를 쓸 수 없습니다';
-  const want = sgWanted && allowed;
-  if (want !== sg) { sg = want; applyTheme(); }
-}
-$('sg').addEventListener('change', (e) => {
-  sgWanted = e.target.checked;
-  try { localStorage.setItem('sg', sgWanted ? '1' : '0'); } catch {}
-  sg = sgWanted && sgAllowed();
-  applyTheme();
-});
 
 function setMode(m) {
   mode = m;
@@ -1015,7 +877,6 @@ fetch('/api/models').then((r) => r.json()).then((m) => {
 fetch('/api/config').then((r) => r.json()).then((cfg) => {
   providers = cfg.providers;
   $('demo').hidden = !cfg.mock;
-  cfgSage = cfg.sage;
   { // 서버의 기본 호출 상한(.env 의 MAX_CALLS)을 화면에 반영
     const sel = $('maxCalls');
     const want = String(cfg.defaultMaxCalls || 120);
@@ -1036,7 +897,6 @@ fetch('/api/config').then((r) => r.json()).then((cfg) => {
   renderTeams();
   setMode(cfg.defaultMode);
   applyTheme();
-  syncSg();
   loadSetup().then(() => {
     $('connDot').hidden = !cfg.setupNeeded;
     if (cfg.setupNeeded) {
@@ -1060,7 +920,7 @@ async function updateEstimate() {
   if (!n) { el.textContent = ''; return; }
   try {
     const maxCalls = Number($('maxCalls').value);
-    const r = await postJson('/api/estimate', { n, ...roundsBody(), persona: sg, premortem: $('premortem').checked, chars: qEl.value.length + totalChars() + agendaChars() + profileChars() + pinned.reduce((n, p) => n + p.conclusion.length, 0), maxCalls });
+    const r = await postJson('/api/estimate', { n, ...roundsBody(), premortem: $('premortem').checked, chars: qEl.value.length + totalChars() + agendaChars() + profileChars() + pinned.reduce((n, p) => n + p.conclusion.length, 0), maxCalls });
     const k = (x) => (x < 1000 ? `${x}` : x < 1e6 ? `${Math.round(x / 100) / 10}천` : `${Math.round(x / 1e5) / 10}백만`);
     const calls = r.calls.min === r.calls.max ? `<b>${r.calls.max}회</b>` : `<b>${r.calls.min}~${r.calls.max}회</b>`;
     el.className = 'estimate' + (r.calls.capped || r.calls.max >= 100 ? ' warn' : '');
@@ -1089,9 +949,9 @@ function stageBox() {
 let resizeTimer = 0;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (!officeBusy) refreshOffice(); }, 200); });
 function refreshOffice() {
-  $('office').hidden = sg;
-  document.body.classList.toggle('office-on', !sg && officeView);
-  if (sg || officeBusy || !window.PixelOffice) return;
+  $('office').hidden = false;
+  document.body.classList.toggle('office-on', officeView);
+  if (officeBusy || !window.PixelOffice) return;
   const ids = seats.map((x) => x.uid).filter((id) => byId(id));
   getPO().setAgents(ids.map((uid, i) => ({ uid, name: nameOf(uid), role: roleLabel(uid), color: colorOf(uid), look: i })), stageBox());
   if (!officeMeeting.length) officeStatusText(ids.length ? `${ids.length}명이 자리에서 일하고 있습니다. 질문을 입력하고 회의를 소집하세요.` : '');
@@ -1133,7 +993,7 @@ function officeEnd(finished, instant) {
   if (instant) back(); else officeTimer = setTimeout(back, finished ? 3500 : 800);
 }
 function officeEvent(ev) {
-  if (sg || !officeBusy || !po) return;
+  if (!officeBusy || !po) return;
   switch (ev.type) {
     case 'start':
       officeMeeting = ev.participants.map((p) => p.id);
@@ -1175,7 +1035,7 @@ function officeEvent(ev) {
 officeView = !wideLayout();
 try { const v = localStorage.getItem('officeView'); if (v === '1') officeView = true; else if (v === '0') officeView = false; } catch {}
 function applyView() {
-  document.body.classList.toggle('office-on', !sg && officeView);
+  document.body.classList.toggle('office-on', officeView);
   $('viewToggle').textContent = officeView ? '토론 내용 보기' : '토론 내용 숨기기';
 }
 $('viewToggle').addEventListener('click', () => {
@@ -1370,7 +1230,7 @@ async function evalRunOnce(c, label, signal) {
   try {
     const res = await fetch('/api/council', { method: 'POST', headers: { 'content-type': 'application/json' }, signal, body: JSON.stringify({
       question: c.question, attachments: [], participants: chosen.map((p) => ({ id: p.id, model: modelValue(p.id), role: roleOf(p.id), effort: effortOf(p.id) })),
-      mode, persona: false, premortem: false, carryActions: false, precedents: [], ...roundsBody(), moderator: $('moderator').value, maxCalls: Number($('maxCalls').value),
+      mode, premortem: false, carryActions: false, precedents: [], ...roundsBody(), moderator: $('moderator').value, maxCalls: Number($('maxCalls').value),
       saveMinutes: false, useProfile: $('useProfile').checked, redact: redactBody(), pinned: [], history: [] }) });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
     const reader = res.body.getReader(), dec = new TextDecoder();
@@ -1400,7 +1260,7 @@ async function evalRunCases(list) {
   if (!selected().length) { $('evalMsg').textContent = '참가자를 한 명 이상 선택하세요'; return; }
   const label = $('evalLabel').value.trim() || $('evalLabel').placeholder.replace(/^예: /, '') || '기본 설정';
   let est;
-  try { est = await postJson('/api/estimate', { n: selected().length, ...roundsBody(), persona: false, chars: list.reduce((a, c) => a + c.question.length, 0) + profileChars(), maxCalls: Number($('maxCalls').value) }); } catch { est = null; }
+  try { est = await postJson('/api/estimate', { n: selected().length, ...roundsBody(), chars: list.reduce((a, c) => a + c.question.length, 0) + profileChars(), maxCalls: Number($('maxCalls').value) }); } catch { est = null; }
   const calls = est ? (est.calls.min === est.calls.max ? `${est.calls.max}회` : `${est.calls.min}~${est.calls.max}회`) : '알 수 없음';
   if (!confirm(`"${label}" 설정으로 ${list.length}개 케이스를 실행합니다.\n\n설정: ${evalConfigText()}\n케이스 1개당 예상 AI 호출 ${calls} (모두 ${list.length}번 실행)\n\nAPI 방식이면 비용이 듭니다. 진행할까요?`)) return;
   evalAbort = new AbortController();
