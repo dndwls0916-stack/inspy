@@ -761,7 +761,12 @@ function addDecisionCard(text, ctx) {
   const el = document.createElement('div');
   el.className = 'dec-nested';
   const t = (ctx.title || '').replace(/["<>]/g, '');
-  el.innerHTML = `<div><b>결정 기록</b> · 이 결론을 결정으로 기록할까요? <small>재검토할 때 결과를 적으면 다음에 참고할 수 있습니다</small></div><div class="dec-row"><input type="text" class="dec-title" value="${esc(t)}" placeholder="결정 제목" aria-label="결정 제목"><select class="dec-when" aria-label="재검토 시점"><option value="">재검토 안 함</option><option value="14">2주 뒤 재검토</option><option value="30" selected>1개월 뒤 재검토</option><option value="90">3개월 뒤 재검토</option></select><button type="button" class="dec-go">결정으로 기록</button></div><div class="hint dec-msg" role="status"></div>`;
+  el.innerHTML = `<div><b>결정 기록</b> · 이 결론을 결정으로 기록할까요? <small>재검토할 때 결과를 적으면 다음에 참고할 수 있습니다</small></div><div class="dec-row"><input type="text" class="dec-title" value="${esc(t)}" placeholder="결정 제목" aria-label="결정 제목"><select class="dec-when" aria-label="재검토 시점"><option value="">재검토 안 함</option><option value="14">2주 뒤 재검토</option><option value="30" selected>1개월 뒤 재검토</option><option value="90">3개월 뒤 재검토</option></select><button type="button" class="dec-go">결정으로 기록</button><button type="button" class="ghost dec-eval" title="이 질문을 평가 케이스로 저장해 설정을 바꿔 비교할 수 있습니다">평가 케이스로 저장</button></div><div class="hint dec-msg" role="status"></div>`;
+  el.querySelector('.dec-eval').addEventListener('click', async (e) => {
+    const msg = el.querySelector('.dec-msg');
+    try { await postJson('/api/evals/add', { title: ctx.title, question: ctx.question }); e.target.disabled = true; msg.textContent = '평가 케이스로 저장했습니다. 왼쪽 "회의" 탭의 "평가 케이스"에서 실행할 수 있습니다.'; }
+    catch (err) { msg.textContent = err.message; }
+  });
   el.querySelector('.dec-go').addEventListener('click', async (e) => {
     const msg = el.querySelector('.dec-msg');
     const days = Number(el.querySelector('.dec-when').value);
@@ -842,7 +847,7 @@ async function runMeeting(question, prec = []) {
   add(esc(question) + (attachments.length ? `<div class="att-names">첨부: ${attachments.map((a) => esc(a.name)).join(', ')}</div>` : ''), 'user');
   setBusy(true);
   controller = new AbortController();
-  const ctx = { labels: {}, conclusion: null, question: question.slice(0, 600), title: question.replace(/^\[안건:\s*([^\]\n]+)\][\s\S]*/, '$1').split('\n')[0].slice(0, 60) };
+  const ctx = { labels: {}, conclusion: null, question: question.slice(0, 4000), title: question.replace(/^\[안건:\s*([^\]\n]+)\][\s\S]*/, '$1').split('\n')[0].slice(0, 60) };
   agenda = question.length > 70 ? question.slice(0, 70) + '…' : question;
   refreshStage();
   officeBegin();
@@ -1295,6 +1300,132 @@ $('todoList').addEventListener('click', async (e) => {
 });
 loadTodos();
 
+// --- 평가 케이스: 같은 안건을 설정만 바꿔 다시 돌려 결과를 나란히 비교한다 ---
+let evalData = { cases: [], runs: [] }, evalSel = null, evalAbort = null;
+const evalCase = () => evalData.cases.find((c) => c.id === evalSel);
+async function loadEvals() {
+  try { evalData = await (await fetch('/api/evals')).json(); } catch { return; }
+  if (evalSel && !evalCase()) evalSel = null;
+  renderEvals();
+}
+function evalConfigText() {
+  const ch = selected();
+  const who = ch.map((p) => `${nameOf(p.id)}${roleLabel(p.id) ? `(${roleLabel(p.id)})` : ''}`).join(' + ');
+  const sel = $('rounds'), rd = sel.options[sel.selectedIndex]?.text || '';
+  return `${who} · ${mode.toUpperCase()} · ${rd}`;
+}
+function renderEvals() {
+  $('evalCases').innerHTML = evalData.cases.length ? evalData.cases.map((c) => `<button type="button" class="ec" data-ec="${esc(c.id)}" aria-pressed="${c.id === evalSel}">${esc(c.title)}<small>실행 ${evalData.runs.filter((r) => r.caseId === c.id).length}회 · 기대 포인트 ${c.expect.length}개</small></button>`).join('') : '<p class="hint">아직 케이스가 없습니다. "+ 새 케이스"로 대표 안건을 저장하세요.</p>';
+  const c = evalCase();
+  $('evalRun').hidden = !c;
+  if (c) { $('evalCfg').textContent = `지금 설정: ${evalConfigText()}`; if (!$('evalLabel').value) $('evalLabel').placeholder = '예: 기본 설정'; }
+  const runs = c ? evalData.runs.filter((r) => r.caseId === c.id).sort((a, b) => String(b.at).localeCompare(String(a.at))) : [];
+  $('evalRuns').innerHTML = runs.length ? `<table><thead><tr><th></th><th>설정</th><th>호출</th><th>시간</th><th>합의</th><th>기대 포인트</th><th>질문에 없는 숫자</th><th></th></tr></thead><tbody>${runs.map((r) => {
+    const sc = r.score;
+    return `<tr data-rid="${esc(r.id)}"><td><input type="checkbox" data-rc aria-label="비교에 넣기"${r.ok ? '' : ' disabled'}></td><td><b>${esc(r.label)}</b><br><small>${esc(fmtDate(r.at))} · ${esc(r.config)}</small></td><td>${r.calls}</td><td>${Math.round(r.ms / 1000)}초</td><td>${r.reached == null ? '-' : r.reached ? '합의' : '합의 못함'}</td><td>${!r.ok ? `<span class="bad">실패${r.error ? ': ' + esc(r.error) : ''}</span>` : sc.expectTotal ? `<span class="${sc.miss.length ? 'bad' : 'good'}">${sc.hit.length}/${sc.expectTotal}</span>${sc.miss.length ? `<br><small>빠짐: ${sc.miss.map(esc).join(', ')}</small>` : ''}` : '-'}</td><td>${!r.ok ? '-' : sc.invented.length ? `<span class="bad">${sc.invented.length}개</span><br><small>${sc.invented.map(esc).join(', ')}</small>` : '<span class="good">없음</span>'}</td><td><button type="button" class="ghost" data-rdel aria-label="결과 삭제">×</button></td></tr>`;
+  }).join('')}</tbody></table><p class="hint">결과를 2개 이상 체크하면 결론이 나란히 보입니다.</p>` : (c ? '<p class="hint">이 케이스의 실행 결과가 없습니다.</p>' : '');
+  renderCompare();
+}
+function renderCompare() {
+  const ids = [...document.querySelectorAll('#evalRuns [data-rc]:checked')].map((x) => x.closest('[data-rid]').dataset.rid);
+  $('evalCompare').innerHTML = ids.length >= 1 ? ids.map((id) => { const r = evalData.runs.find((x) => x.id === id); return r ? `<div class="col"><h4>${esc(r.label)} <small>${esc(r.config)}</small></h4>${md(r.conclusion)}</div>` : ''; }).join('') : '';
+}
+$('evalRuns').addEventListener('change', (e) => { if (e.target.matches('[data-rc]')) renderCompare(); });
+$('evalRuns').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-rdel]');
+  if (!b || !confirm('이 실행 결과를 지울까요?')) return;
+  await postJson('/api/evals/run-delete', { id: b.closest('[data-rid]').dataset.rid }).catch(() => {});
+  loadEvals();
+});
+$('evalCases').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ec]');
+  if (!b) return;
+  evalSel = b.dataset.ec;
+  const c = evalCase();
+  $('evalForm').hidden = false; $('evalTitle').value = c.title; $('evalQuestion').value = c.question; $('evalExpect').value = c.expect.join('\n'); $('evalDelete').hidden = false;
+  $('evalMsg').textContent = '';
+  renderEvals();
+});
+$('evalNew').addEventListener('click', () => { evalSel = null; $('evalForm').hidden = false; $('evalTitle').value = ''; $('evalQuestion').value = ''; $('evalExpect').value = ''; $('evalDelete').hidden = true; renderEvals(); $('evalQuestion').focus(); });
+$('evalSave').addEventListener('click', async () => {
+  try {
+    const body = { title: $('evalTitle').value, question: $('evalQuestion').value, expect: $('evalExpect').value };
+    const r = evalSel ? await postJson('/api/evals/update', { id: evalSel, patch: body }) : await postJson('/api/evals/add', body);
+    evalSel = r.item.id;
+    await loadEvals();
+    $('evalMsg').textContent = '저장했습니다';
+  } catch (err) { $('evalMsg').textContent = err.message; }
+});
+$('evalDelete').addEventListener('click', async () => {
+  if (!evalSel || !confirm('이 케이스와 실행 결과를 모두 지울까요?')) return;
+  await postJson('/api/evals/delete', { id: evalSel }).catch(() => {});
+  evalSel = null; $('evalForm').hidden = true;
+  loadEvals();
+});
+// 한 번 실행: 회의 엔드포인트를 그대로 쓰되(검증·가리기·호출 상한이 같다) 회의록은 남기지 않고 화면에도 그리지 않는다
+async function evalRunOnce(c, label, signal) {
+  const chosen = selected();
+  const t0 = Date.now();
+  const rec = { label, config: evalConfigText(), ok: false, conclusion: '', reached: null, calls: 0, inChars: 0, outChars: 0, ms: 0, error: '' };
+  try {
+    const res = await fetch('/api/council', { method: 'POST', headers: { 'content-type': 'application/json' }, signal, body: JSON.stringify({
+      question: c.question, attachments: [], participants: chosen.map((p) => ({ id: p.id, model: modelValue(p.id), role: roleOf(p.id), effort: effortOf(p.id) })),
+      mode, persona: false, premortem: false, carryActions: false, precedents: [], ...roundsBody(), moderator: $('moderator').value, maxCalls: Number($('maxCalls').value),
+      saveMinutes: false, useProfile: $('useProfile').checked, redact: redactBody(), pinned: [], history: [] }) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!chunk.startsWith('data: ')) continue;
+        const ev = JSON.parse(chunk.slice(6));
+        if (ev.type === 'final') { rec.conclusion = ev.text; rec.reached = ev.consensus ? Boolean(ev.consensus.reached) : null; rec.ok = !ev.local; }
+        else if (ev.type === 'usage') { rec.calls = ev.calls; for (const d of Object.values(ev.detail || {})) { rec.inChars += d.inChars || 0; rec.outChars += d.outChars || 0; } }
+        else if (ev.type === 'error') rec.error = ev.error;
+      }
+    }
+  } catch (err) { rec.error = err.name === 'AbortError' ? '중단됨' : err.message; }
+  rec.ms = Date.now() - t0;
+  if (!rec.conclusion && !rec.error) rec.error = '결론이 나오지 않았습니다';
+  await postJson('/api/evals/run', { caseId: c.id, run: rec });
+  return rec;
+}
+async function evalRunCases(list) {
+  if (meetingRunning) { $('evalMsg').textContent = '진행 중인 회의가 끝난 뒤에 실행하세요'; return; }
+  if (!selected().length) { $('evalMsg').textContent = '참가자를 한 명 이상 선택하세요'; return; }
+  const label = $('evalLabel').value.trim() || $('evalLabel').placeholder.replace(/^예: /, '') || '기본 설정';
+  let est;
+  try { est = await postJson('/api/estimate', { n: selected().length, ...roundsBody(), persona: false, chars: list.reduce((a, c) => a + c.question.length, 0) + profileChars(), maxCalls: Number($('maxCalls').value) }); } catch { est = null; }
+  const calls = est ? (est.calls.min === est.calls.max ? `${est.calls.max}회` : `${est.calls.min}~${est.calls.max}회`) : '알 수 없음';
+  if (!confirm(`"${label}" 설정으로 ${list.length}개 케이스를 실행합니다.\n\n설정: ${evalConfigText()}\n케이스 1개당 예상 AI 호출 ${calls} (모두 ${list.length}번 실행)\n\nAPI 방식이면 비용이 듭니다. 진행할까요?`)) return;
+  evalAbort = new AbortController();
+  ['evalRunOne', 'evalRunAll'].forEach((id) => { $(id).disabled = true; });
+  $('evalStop').hidden = false;
+  let n = 0;
+  for (const c of list) {
+    $('evalMsg').textContent = `실행 중… (${++n}/${list.length}) ${c.title}`;
+    const r = await evalRunOnce(c, label, evalAbort.signal);
+    if (evalAbort.signal.aborted) break;
+    if (!r.ok) $('evalMsg').textContent = `"${c.title}" 실패: ${r.error}`;
+    await loadEvals();
+  }
+  evalAbort = null;
+  ['evalRunOne', 'evalRunAll'].forEach((id) => { $(id).disabled = false; });
+  $('evalStop').hidden = true;
+  if (!/실패/.test($('evalMsg').textContent)) $('evalMsg').textContent = '끝났습니다. 아래 결과를 비교해 보세요.';
+  loadEvals();
+}
+$('evalRunOne').addEventListener('click', () => { const c = evalCase(); if (c) evalRunCases([c]); });
+$('evalRunAll').addEventListener('click', () => { if (evalData.cases.length) evalRunCases(evalData.cases); });
+$('evalStop').addEventListener('click', () => evalAbort?.abort());
+$('evalBtn').addEventListener('click', async () => { $('evalDlg').showModal(); await loadEvals(); });
+$('evalDlg').addEventListener('close', () => evalAbort?.abort());
+
 // --- 사용량·비용: 저장된 회의록에서 호출 수와 글자 수를 모아 보고, 사용자가 넣은 단가로 비용을 추정한다 ---
 let usageData = null;
 const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
@@ -1488,7 +1619,7 @@ $('backupFile').addEventListener('change', async () => {
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
     const prof = { restored: '회사 정보를 가져왔습니다', kept: '회사 정보는 이미 있어 덮어쓰지 않았습니다(백업 파일 안에 남아 있습니다)', same: '회사 정보는 같습니다', rejected: '회사 정보를 가져오지 못했습니다', none: '' }[d.profile] || '';
-    msg.textContent = `회의록 ${d.added}건${d.actions ? `, 할 일 ${d.actions}건` : ''}${d.decisions ? `, 결정 ${d.decisions}건` : ''}을 가져왔습니다${d.existing ? ` (이미 있어 건너뜀 ${d.existing}건)` : ''}${d.rejected ? ` · 읽지 못한 파일 ${d.rejected}건` : ''}. ${prof}`;
+    msg.textContent = `회의록 ${d.added}건${d.actions ? `, 할 일 ${d.actions}건` : ''}${d.decisions ? `, 결정 ${d.decisions}건` : ''}${d.evalCases ? `, 평가 케이스 ${d.evalCases}건` : ''}을 가져왔습니다${d.existing ? ` (이미 있어 건너뜀 ${d.existing}건)` : ''}${d.rejected ? ` · 읽지 못한 파일 ${d.rejected}건` : ''}. ${prof}`;
     if (d.actions) loadTodos();
     if (d.decisions) loadDecisions();
     if (d.profile === 'restored') { const p = await (await fetch('/api/profile')).json(); $('profileText').value = p.text || ''; profileState(); }
