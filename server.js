@@ -20,6 +20,7 @@ const setup = require('./lib/setup');
 const actions = require('./lib/actions');
 const decisions = require('./lib/decisions');
 const drafts = require('./lib/drafts');
+const usageStats = require('./lib/usage');
 const { scanFolder, saveOutput, readFolderXlsx } = require('./lib/folder');
 const { ROLES, TEAMS, publicRoles } = require('./lib/roles');
 const { estimate } = require('./lib/estimate');
@@ -475,6 +476,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/api/draft') return await handleDraft(req, res);
     if (req.method === 'POST' && url.pathname === '/api/setup/test') return await handleSetupTest(req, res);
+    if (req.method === 'GET' && url.pathname === '/api/usage') {
+      const days = Math.min(3650, Math.max(0, Math.floor(Number(url.searchParams.get('days'))) || 0));
+      return sendJson(res, 200, { ...usageStats.summarize(minutesDir(), { days }), labels: Object.fromEntries(Object.entries(PROVIDERS).map(([id, p]) => [id, p.label])) });
+    }
     if (req.method === 'GET' && url.pathname === '/api/decisions') return sendJson(res, 200, { items: decisions.load(minutesDir()), due: decisions.due(minutesDir()).map((x) => x.id) });
     if (req.method === 'POST' && url.pathname.startsWith('/api/decisions/')) {
       try {
