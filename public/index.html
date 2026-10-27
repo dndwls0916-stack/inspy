@@ -80,6 +80,7 @@
       <label class="check"><input type="checkbox" id="saveMinutes" checked> <span>회의록 자동 저장 <small>실행파일 옆 <b>회의록</b> 폴더에 .md / .jsonl</small></span></label>
       <label class="check"><input type="checkbox" id="premortem"> <span>사전 부검 <small>결론 뒤에 "이 결정이 실패한다면" 이유 3가지를 AI 호출 1회로 덧붙임</small></span></label>
       <label class="check"><input type="checkbox" id="notifyEnd" checked> <span>회의 끝 알림 <small>소리 · 탭 제목 깜박임 · 브라우저 알림</small></span></label>
+      <button id="evalBtn" class="ghost" type="button" title="대표 안건을 저장해 두고 설정을 바꿔 가며 결과를 나란히 비교합니다">평가 케이스</button>
       <button id="usageBtn" class="ghost" type="button" title="저장된 회의록에서 AI 호출 수와 비용 추정을 모아 봅니다">사용량·비용 보기</button>
       <button id="reset" class="ghost" type="button">새 회의 시작</button>
       </section>
@@ -220,6 +221,32 @@
       <div class="xlsx-actions"><button type="button" id="xPreview" class="ghost">미리보기</button><button type="button" id="xAdd">첨부하기</button></div>
       <p id="xMsg" class="hint" role="status"></p>
       <pre id="xOut" class="xlsx-out"></pre>
+    </div>
+  </div>
+</dialog>
+<dialog id="evalDlg" class="past-dlg eval-dlg" aria-label="평가 케이스">
+  <form method="dialog" class="past-head"><strong>평가 케이스 <small>설정을 바꿔 가며 같은 안건의 결과 비교</small></strong><button class="ghost" value="close">닫기</button></form>
+  <p class="hint">대표 안건을 저장해 두고, <b>지금 화면의 설정</b>(참가자·역할·방식·라운드)으로 실행해 결과를 쌓습니다. 설정을 바꾸고 같은 케이스를 다시 실행하면 나란히 비교할 수 있습니다. <b>실제 AI 호출 비용이 듭니다.</b> 채점은 기계적인 것만 합니다(기대 포인트가 결론에 있는가, 질문에 없는 숫자가 있는가). 결론이 좋은지는 사람이 두 결과를 읽고 판단하세요.</p>
+  <div class="eval-grid">
+    <div class="eval-side">
+      <div id="evalCases" class="eval-cases"></div>
+      <button type="button" id="evalNew" class="ghost">+ 새 케이스</button>
+    </div>
+    <div class="eval-main">
+      <div id="evalForm" class="eval-form" hidden>
+        <label class="field">제목 <input id="evalTitle" type="text" maxlength="60"></label>
+        <label class="field">질문(안건) <textarea id="evalQuestion" rows="4" placeholder="회의에 올릴 질문을 그대로 적으세요"></textarea></label>
+        <label class="field">기대 포인트 <small>결론에 들어가야 할 낱말, 한 줄에 하나(선택)</small><textarea id="evalExpect" rows="3" placeholder="원가&#10;일정&#10;대체차량"></textarea></label>
+        <div class="half-row"><button type="button" id="evalSave">저장</button><button type="button" id="evalDelete" class="ghost">케이스 삭제</button></div>
+      </div>
+      <div id="evalRun" class="eval-run" hidden>
+        <label class="field">이번 실행의 설정 이름 <small>나중에 구분하려고 붙입니다(예: Gemini 뺌, 변호사 추가)</small><input id="evalLabel" type="text" maxlength="60"></label>
+        <p id="evalCfg" class="hint"></p>
+        <div class="half-row"><button type="button" id="evalRunOne">이 케이스 실행</button><button type="button" id="evalRunAll" class="ghost">모든 케이스 실행</button><button type="button" id="evalStop" class="ghost" hidden>중단</button></div>
+        <p id="evalMsg" class="hint" role="status"></p>
+      </div>
+      <div id="evalRuns" class="eval-runs"></div>
+      <div id="evalCompare" class="eval-compare"></div>
     </div>
   </div>
 </dialog>

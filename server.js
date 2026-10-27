@@ -21,6 +21,7 @@ const actions = require('./lib/actions');
 const decisions = require('./lib/decisions');
 const drafts = require('./lib/drafts');
 const usageStats = require('./lib/usage');
+const evals = require('./lib/evals');
 const { scanFolder, saveOutput, readFolderXlsx } = require('./lib/folder');
 const { ROLES, TEAMS, publicRoles } = require('./lib/roles');
 const { estimate } = require('./lib/estimate');
@@ -476,6 +477,19 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/api/draft') return await handleDraft(req, res);
     if (req.method === 'POST' && url.pathname === '/api/setup/test') return await handleSetupTest(req, res);
+    if (req.method === 'GET' && url.pathname === '/api/evals') return sendJson(res, 200, evals.readAll(minutesDir()));
+    if (req.method === 'POST' && url.pathname.startsWith('/api/evals/')) {
+      try {
+        const b = JSON.parse((await readBody(req, 200_000)) || '{}');
+        const act = url.pathname.slice('/api/evals/'.length);
+        if (act === 'add') return sendJson(res, 200, { item: evals.addCase(minutesDir(), b) });
+        if (act === 'update') return sendJson(res, 200, { item: evals.updateCase(minutesDir(), String(b.id || ''), b.patch) });
+        if (act === 'delete') { evals.removeCase(minutesDir(), String(b.id || '')); return sendJson(res, 200, { ok: true }); }
+        if (act === 'run') return sendJson(res, 200, { item: evals.addRun(minutesDir(), String(b.caseId || ''), b.run) });
+        if (act === 'run-delete') { evals.removeRun(minutesDir(), String(b.id || '')); return sendJson(res, 200, { ok: true }); }
+        return sendJson(res, 404, { error: '없는 요청입니다' });
+      } catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
+    }
     if (req.method === 'GET' && url.pathname === '/api/usage') {
       const days = Math.min(3650, Math.max(0, Math.floor(Number(url.searchParams.get('days'))) || 0));
       return sendJson(res, 200, { ...usageStats.summarize(minutesDir(), { days }), labels: Object.fromEntries(Object.entries(PROVIDERS).map(([id, p]) => [id, p.label])) });
