@@ -14,7 +14,6 @@ try {
 } catch {}
 const { runCouncil } = require('./lib/council');
 const { listAllModels, cliModelChoices } = require('./lib/models');
-const { PERSONAS, SAGE } = require('./lib/personas');
 const backup = require('./lib/backup');
 const setup = require('./lib/setup');
 const actions = require('./lib/actions');
@@ -157,7 +156,6 @@ function config() {
     mock: isMock(),
     setupNeeded: !isMock() && !Object.keys(PROVIDERS).some((id) => hasApiKey(id) || cliAvailable(id)),
     defaultMode: explicitMode || autoMode(),
-    sage: SAGE,
     defaultMaxCalls: DEFAULT_MAX_CALLS,
     maxCallsLimit: MAX_CALLS_LIMIT,
     minutesDefault: process.env.NO_MINUTES !== '1',
@@ -178,7 +176,6 @@ function config() {
       envHint: p.envHint || p.keyEnv,
       hint: p.hint || '',
       extra: Boolean(p.compat),
-      persona: PERSONAS[id],
       model: defaultModel(id),
       modelPinned: Boolean(pinnedModel(id)),
       cliModels: cliModelChoices(id),
@@ -227,7 +224,6 @@ async function handleEstimate(req, res) {
     consensus,
     unlimited: consensus && b.unlimited === true,
     maxRounds: Math.min(8, Math.max(2, Number(b.maxRounds) || 5)),
-    persona: b.persona === true,
     premortem: b.premortem === true,
     chars: Math.max(0, Number(b.chars) || 0),
     maxCalls,
@@ -378,7 +374,7 @@ async function handleCouncil(req, res) {
 
   const rounds = Math.min(3, Math.max(1, Number(body.rounds) || 2));
   const maxCalls = clampCalls(body.maxCalls);
-  const minCalls = participants.length + 1 + (body.persona === true ? 1 : 0);
+  const minCalls = participants.length + 1;
   if (maxCalls < minCalls) return sendJson(res, 400, { error: `호출 상한(${maxCalls}회)이 너무 작습니다. 이 구성은 최소 ${minCalls}회가 필요합니다` });
   if (activeMeetings >= MAX_MEETINGS) return sendJson(res, 429, { error: `이미 회의가 ${activeMeetings}개 진행 중입니다. 끝난 뒤에 시작하세요(동시 최대 ${MAX_MEETINGS}개)` });
   const moderator = participants.some((p) => p.id === body.moderator) ? body.moderator : participants[0].id;
@@ -430,7 +426,7 @@ async function handleCouncil(req, res) {
   activeMeetings++;
   let status = '완료';
   try {
-    await runCouncil({ question: q2, participants, attachments: atts, rounds, consensus, unlimited, maxRounds, maxCalls, moderator, history, mode, persona: body.persona === true, premortem: body.premortem === true, carried, precedents, human, emit, signal: ac.signal });
+    await runCouncil({ question: q2, participants, attachments: atts, rounds, consensus, unlimited, maxRounds, maxCalls, moderator, history, mode, premortem: body.premortem === true, carried, precedents, human, emit, signal: ac.signal });
   } catch (err) {
     status = '오류로 종료';
     emit({ type: 'error', error: String(err.message || err) });

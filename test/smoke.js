@@ -38,17 +38,9 @@ server.listen(0, '127.0.0.1', async () => {
     assert.equal(events.filter((e) => e.type === 'final').length, 1);
     assert.equal(events.at(-1).type, 'done');
 
-    // 삼국지 모드: 말투 지침이 전달되고, 꺼져 있으면 전달되지 않는다.
-    const sg = await sse(await fetch(`${base}/api/council`, { method: 'POST', body: JSON.stringify({ question: 'Q', participants: [{ id: 'gpt' }], rounds: 1, persona: true }) }));
-    assert(sg.find((e) => e.type === 'turn').text.includes('(사극 말투)'), '삼국지 모드 말투');
-    assert(!turns[0].text.includes('(사극 말투)'), '일반 모드에는 말투 없음');
-    const sage = sg.find((e) => e.type === 'sage');
-    assert(sage && sage.text.includes('한 줄 요약'), '제갈량의 한마디');
-    assert(sg.findIndex((e) => e.type === 'final') < sg.findIndex((e) => e.type === 'sage'), '결단 뒤에 한마디');
-    assert(!events.some((e) => e.type === 'sage'), '일반 모드에는 제갈량 없음');
-    assert(cfg.sage.name === '제갈량');
-    assert(cfg.providers.filter((p) => ['gpt', 'gemini', 'claude'].includes(p.id)).every((p) => p.persona?.name), '기본 3 AI 의 캐릭터 정보');
-    assert(cfg.providers.filter((p) => p.extra).every((p) => !p.persona), '다른 AI 에는 삼국지 캐릭터가 없다');
+    // 삼국지 모드는 없어졌다: 설정에도 캐릭터 정보가 없고, 요청에 persona 를 보내도 말투 지침이 붙지 않는다.
+    assert(!('sage' in cfg) && cfg.providers.every((p) => !('persona' in p)), '캐릭터 정보 없음');
+    assert(!events.some((e) => e.type === 'sage'));
 
     assert.equal((await fetch(`${base}/`)).status, 200);
     assert.equal((await fetch(`${base}/../server.js`)).status, 404);
