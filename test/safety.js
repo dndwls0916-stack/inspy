@@ -12,11 +12,10 @@ const { renderMinutes, createMinutes } = require('../lib/minutes');
 
 // --- 예상 호출 수: council.js 의 호출 구조와 같은 식 ---
 assert.deepEqual(estimate({ n: 3, rounds: 2 }).calls, { min: 7, max: 7, uncapped: 7, capped: false }, '고정 라운드: 3×2 + 결론 1');
-assert.equal(estimate({ n: 3, rounds: 2, persona: true }).calls.max, 8, '삼국지 모드는 제갈량 호출 +1');
-for (const [args, label] of [[{ n: 8, consensus: true, unlimited: true, maxCalls: 10 }, '8명 합의 상한 10'], [{ n: 3, rounds: 3, persona: true, maxCalls: 10 }, '3명 3라운드 제갈량 상한 10'], [{ n: 4, rounds: 3, maxCalls: 10 }, '4명 3라운드 상한 10'], [{ n: 3, consensus: true, unlimited: true, maxCalls: 30 }, '합의 제한 없음 상한 30']]) {
+for (const [args, label] of [[{ n: 8, consensus: true, unlimited: true, maxCalls: 10 }, '8명 합의 상한 10'], [{ n: 4, rounds: 3, maxCalls: 10 }, '4명 3라운드 상한 10'], [{ n: 3, consensus: true, unlimited: true, maxCalls: 30 }, '합의 제한 없음 상한 30']]) {
   const x = estimate(args);
   assert(x.calls.min <= x.calls.max, `${label}: 범위가 뒤집히지 않는다 (${x.calls.min}~${x.calls.max})`);
-  assert(x.inputTokens.min <= x.inputTokens.max && x.calls.max <= args.maxCalls + (args.persona ? 1 : 0) + 8, `${label}: 최대는 상한 근처`);
+  assert(x.inputTokens.min <= x.inputTokens.max && x.calls.max <= args.maxCalls + 8, `${label}: 최대는 상한 근처`);
 }
 assert.equal(estimate({ n: 1, rounds: 1 }).calls.max, 2);
 let e = estimate({ n: 3, consensus: true, maxRounds: 4 });
@@ -138,10 +137,6 @@ server.listen(0, '127.0.0.1', async () => {
     fin = r.events.find((x) => x.type === 'final');
     assert(fin && fin.local && fin.text.includes('호출 상한(10회)에 도달해 AI가 결론을 정리하지 못했습니다') && fin.text.includes('참가자별 마지막 발언'), '로컬 결론');
     assert.equal(used(r).calls, 10, '상한 정확히 10회');
-    // 1-d) 제갈량(삼국지) 호출도 사용량에 포함: 3×2 + 결론 + 제갈량 = 8
-    r = await run(base, b('제갈량 호출 포함', { rounds: 2, persona: true, maxCalls: 60 }));
-    assert.equal(used(r).calls, 8, '삼국지 모드 사용 호출 8회(제갈량 포함)');
-    assert(r.events.findIndex((x) => x.type === 'sage') < r.events.findIndex((x) => x.type === 'usage'), '사용량은 제갈량 뒤에 알린다');
     // 고정 라운드도 상한을 지킨다: 3명 × 3라운드(10회)를 8회 상한으로
     const P4 = [...P3, { id: 'gpt-2' }];
     r = await run(base, b('상한 고정', { participants: P4, rounds: 3, maxCalls: 10 }));
